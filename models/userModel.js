@@ -41,10 +41,16 @@ async function updateUserPassword(userId, hashedPassword) {
   return res.rows[0];
 }
 
+async function getRoleById(roleId) {
+  const res = await query("SELECT name FROM roles WHERE id = $1", [roleId]);
+  return res.rows[0];
+}
+
 module.exports = {
   createUser,
   findUserByUsername,
   findUserById,
   getRoleByName,
-  updateUserPassword, // Ekspor fungsi baru
+  updateUserPassword,
+  getRoleById, // Export the new function
 };

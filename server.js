@@ -2,7 +2,7 @@
 require("dotenv").config();
 const buildApp = require("./app");
 
-const app = buildApp({ logger: true }); // Mengaktifkan logger Fastify
+const app = buildApp({ logger: true });
 const port = process.env.PORT || 3000;
 
 const start = async () => {
