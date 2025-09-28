@@ -1,7 +1,7 @@
 # Code Dump for lsp-backend
 
 **Selected Extensions:** .js
-**Ignored Folders:** .git, .vscode, __pycache__, bin, build, dist, node_modules, obj, out, target
+**Ignored Folders:** .git, .vscode, **pycache**, bin, build, dist, node_modules, obj, out, target
 
 ---
 
@@ -30,7 +30,6 @@ function buildApp(opts = {}) {
 }
 
 module.exports = buildApp;
-
 ```
 
 ## lsp-backend/server.js
@@ -54,7 +53,6 @@ const start = async () => {
 };
 
 start();
-
 ```
 
 ## lsp-backend/config/database.js
@@ -74,7 +72,6 @@ pool.on("error", (err, client) => {
 });
 
 module.exports = pool;
-
 ```
 
 ## lsp-backend/config/jwt.js
@@ -87,7 +84,6 @@ module.exports = {
   secret: process.env.JWT_SECRET,
   expiresIn: process.env.JWT_EXPIRES_IN || "1h",
 };
-
 ```
 
 ## lsp-backend/controllers/authController.js
@@ -194,7 +190,6 @@ module.exports = {
   register,
   login,
 };
-
 ```
 
 ## lsp-backend/controllers/lspController.js
@@ -302,7 +297,6 @@ module.exports = {
   updateLspHandler,
   deleteLspHandler,
 };
-
 ```
 
 ## lsp-backend/controllers/userController.js
@@ -379,7 +373,6 @@ module.exports = {
   getMyProfile,
   changePassword,
 };
-
 ```
 
 ## lsp-backend/middlewares/authMiddleware.js
@@ -415,7 +408,6 @@ const authenticate = async (request, reply) => {
 };
 
 module.exports = authenticate;
-
 ```
 
 ## lsp-backend/middlewares/authorizeMiddleware.js
@@ -462,7 +454,6 @@ const authorize =
   };
 
 module.exports = authorize;
-
 ```
 
 ## lsp-backend/models/lspModel.js
@@ -657,7 +648,6 @@ module.exports = {
   deleteLsp,
   getTotalLsps,
 };
-
 ```
 
 ## lsp-backend/models/userModel.js
@@ -719,7 +709,6 @@ module.exports = {
   updateUserPassword,
   getRoleById, // Export the new function
 };
-
 ```
 
 ## lsp-backend/routes/authRoutes.js
@@ -734,7 +723,6 @@ async function authRoutes(fastify, options) {
 }
 
 module.exports = authRoutes;
-
 ```
 
 ## lsp-backend/routes/lspRoutes.js
@@ -787,7 +775,6 @@ async function lspRoutes(fastify, options) {
 }
 
 module.exports = lspRoutes;
-
 ```
 
 ## lsp-backend/routes/userRoutes.js
@@ -813,7 +800,6 @@ async function userRoutes(fastify, options) {
 }
 
 module.exports = userRoutes;
-
 ```
 
 ## lsp-backend/utils/db.js
@@ -836,7 +822,6 @@ module.exports = {
   query,
   pool, // Ekspor pool juga jika dibutuhkan langsung di tempat lain (misalnya untuk transaksi)
 };
-
 ```
 
 ## lsp-backend/utils/jwt.js
@@ -864,6 +849,4 @@ module.exports = {
   generateToken,
   verifyToken,
 };
-
 ```
-

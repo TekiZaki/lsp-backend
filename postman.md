@@ -1,3 +1,7 @@
+```bash
+npm start
+```
+
 ## 1. Register Admin/Asesi/Asesor
 
 - URL: http://localhost:3000/auth/register
