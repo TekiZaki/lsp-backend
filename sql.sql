@@ -338,3 +338,86 @@ CREATE TABLE IF NOT EXISTS payment_reports (
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Tambahan untuk lsp_institutions (sudah ada, tapi memastikan kolom sesuai)
+-- Tabel: lsp_institutions
+CREATE TABLE IF NOT EXISTS lsp_institutions (
+    id SERIAL PRIMARY KEY,
+    kode_lsp VARCHAR(50) UNIQUE NOT NULL,
+    nama_lsp VARCHAR(255) NOT NULL,
+    jenis_lsp VARCHAR(10) NOT NULL, -- P1, P2, P3
+    direktur_lsp VARCHAR(255),
+    manajer_lsp VARCHAR(255),
+    institusi_induk VARCHAR(255),
+    skkni TEXT,
+    telepon VARCHAR(50),
+    faximile VARCHAR(50),
+    whatsapp VARCHAR(50),
+    alamat_email VARCHAR(255),
+    website VARCHAR(255),
+    alamat TEXT,
+    desa VARCHAR(100),
+    kecamatan VARCHAR(100),
+    kota VARCHAR(100),
+    provinsi VARCHAR(100),
+    kode_pos VARCHAR(10),
+    nomor_lisensi VARCHAR(100),
+    masa_berlaku DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabel Baru: tempat_uji_kompetensi (TUK)
+CREATE TABLE IF NOT EXISTS tempat_uji_kompetensi (
+    id SERIAL PRIMARY KEY,
+    kode_tuk VARCHAR(50) UNIQUE NOT NULL,
+    nama_tempat VARCHAR(255) NOT NULL,
+    jenis_tuk VARCHAR(50) NOT NULL, -- Sewaktu, Permanen, Mandiri
+    lsp_induk_id INTEGER REFERENCES lsp_institutions(id) ON DELETE SET NULL, -- LSP yang menaungi
+    penanggung_jawab VARCHAR(255),
+    lisensi_info TEXT, -- Detail Lisensi TUK
+    skkni_info TEXT,
+    jadwal_info TEXT, -- Informasi jadwal TUK
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabel: certification_schemes (Skema Sertifikasi) - Diperbarui
+CREATE TABLE IF NOT EXISTS certification_schemes (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT,
+    skkni TEXT, -- Tambahan field SKKNI
+    keterangan_bukti TEXT, -- Tambahan field untuk form skema
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabel Baru: scheme_requirements (Persyaratan Skema)
+CREATE TABLE IF NOT EXISTS scheme_requirements (
+    id SERIAL PRIMARY KEY,
+    scheme_id INTEGER NOT NULL REFERENCES certification_schemes(id) ON DELETE CASCADE,
+    deskripsi TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabel: events (Event Uji Kompetensi) - Diperbarui
+CREATE TABLE IF NOT EXISTS events (
+    id SERIAL PRIMARY KEY,
+    scheme_id INTEGER REFERENCES certification_schemes(id) ON DELETE SET NULL, -- Scheme yang ditawarkan dalam event
+    event_name VARCHAR(255) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    registration_deadline DATE,
+    location TEXT,
+    description TEXT,
+    max_participants INTEGER,
+    status VARCHAR(50) DEFAULT 'open',
+    lsp_penyelenggara VARCHAR(255), -- Tambahan
+    penanggung_jawab VARCHAR(255),  -- Tambahan
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

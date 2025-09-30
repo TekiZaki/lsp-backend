@@ -1,13 +1,13 @@
 # LSP Backend API
 
-Backend untuk sistem manajemen **Lembaga Sertifikasi Profesi (LSP)** menggunakan **Node.js**, **Fastify**, **PostgreSQL**, dan **JWT Authentication**.
-Proyek ini menyediakan API untuk autentikasi, manajemen user, serta CRUD data LSP.
+Backend untuk sistem manajemen **Lembaga Sertifikasi Profesi (LSP)** menggunakan **Node.js**, **Fastify**, **PostgreSQL**, dan **JWT Authentication**.  
+Proyek ini menyediakan API untuk autentikasi, manajemen user, serta CRUD data **LSP, TUK, EUK, dan Skema Sertifikasi**.
 
 ---
 
 ## 🚀 Tech Stack
 
-- **Node.js** + **Fastify** → Framework server-side
+- **Node.js + Fastify** → Framework server-side
 - **PostgreSQL** → Database utama
 - **JWT (JSON Web Token)** → Autentikasi
 - **bcryptjs** → Enkripsi password
@@ -18,15 +18,17 @@ Proyek ini menyediakan API untuk autentikasi, manajemen user, serta CRUD data LS
 ## 📂 Struktur Proyek
 
 ```
+
 lsp-backend/
 ├── app.js                # Inisialisasi aplikasi Fastify
 ├── server.js             # Entry point server
 ├── config/               # Konfigurasi DB & JWT
-├── controllers/          # Logika bisnis (Auth, User, LSP)
+├── controllers/          # Logika bisnis (Auth, User, LSP, TUK, EUK, Skema)
 ├── middlewares/          # Middleware autentikasi & otorisasi
-├── models/               # Query database (User & LSP)
+├── models/               # Query database
 ├── routes/               # Definisi routing API
 └── utils/                # Helper (DB & JWT utils)
+
 ```
 
 ---
@@ -73,7 +75,7 @@ JWT_EXPIRES_IN=1h
 
 ### 🔑 Autentikasi (`/api/auth`)
 
-- `POST /register` → Register user baru
+- `POST /register` → Register user baru (Admin/Asesi/Asesor)
 - `POST /login` → Login & dapatkan token JWT
 
 ### 👤 User (`/api/users`)
@@ -83,11 +85,26 @@ JWT_EXPIRES_IN=1h
 
 ### 🏢 LSP (`/api/lsps`)
 
-- `GET /` → Ambil semua LSP (paginasi & search tersedia)
+- `GET /` → Ambil semua LSP (paginasi & search tersedia, require JWT)
 - `GET /:id` → Ambil detail LSP berdasarkan ID
-- `POST /` → Tambah LSP baru (hanya Admin)
-- `PUT /:id` → Update LSP (hanya Admin)
-- `DELETE /:id` → Hapus LSP (hanya Admin)
+- `POST /` → Tambah LSP baru (**Admin only**)
+- `PUT /:id` → Update LSP (**Admin only**)
+- `DELETE /:id` → Hapus LSP (**Admin only**)
+
+### 🏫 TUK (`/api/tuks`)
+
+- `GET /` → Ambil semua TUK (paginasi & search tersedia, require JWT)
+- CRUD endpoint lainnya tersedia di backend (hanya Admin), bisa diaktifkan sesuai kebutuhan.
+
+### 📅 EUK / Event Uji Kompetensi (`/api/euks`)
+
+- `GET /` → Ambil semua event (paginasi & search tersedia, require JWT)
+- CRUD endpoint lainnya tersedia di backend (hanya Admin), bisa diaktifkan sesuai kebutuhan.
+
+### 📜 Skema Sertifikasi (`/api/schemes`)
+
+- `GET /` → Ambil semua skema sertifikasi (paginasi & search tersedia, require JWT)
+- CRUD endpoint lainnya tersedia di backend (hanya Admin), bisa diaktifkan sesuai kebutuhan.
 
 ---
 
@@ -100,22 +117,25 @@ JWT_EXPIRES_IN=1h
 
 ## 🛠️ Database
 
-### Tabel yang digunakan:
+### Tabel utama yang digunakan:
 
 - **users** (id, username, password, email, role_id, created_at, updated_at)
 - **roles** (id, name)
 - **lsp_institutions** (informasi detail LSP)
+- **tempat_uji_kompetensi (TUK)** (informasi lokasi uji)
+- **events (EUK)** (event uji kompetensi terkait skema & LSP)
+- **certification_schemes (Skema)** (informasi skema sertifikasi)
 
 ---
 
-## 📝 Dokumentasi API
+## 📝 Contoh Dokumentasi API (Postman)
 
-### 1. Register Admin/Asesi/Asesor
+### 1. Register User
 
-- URL: http://localhost:3000/auth/register
+- URL: `http://localhost:3000/api/auth/register`
 - Method: POST
 - Headers: Content-Type: application/json
-- Body (raw, JSON):
+- Body:
 
 ```json
 {
@@ -128,10 +148,9 @@ JWT_EXPIRES_IN=1h
 
 ### 2. Login
 
-- URL: http://localhost:3000/auth/login
+- URL: `http://localhost:3000/api/auth/login`
 - Method: POST
-- Headers: Content-Type: application/json
-- Body (raw, JSON):
+- Body:
 
 ```json
 {
@@ -140,22 +159,23 @@ JWT_EXPIRES_IN=1h
 }
 ```
 
-### 3. Get My Profile (Dilindungi JWT)
+### 3. Get My Profile (JWT Required)
 
-- URL: http://localhost:3000/users/profile
+- URL: `http://localhost:3000/api/users/profile`
 - Method: GET
 - Headers:
-  - Content-Type: application/json
-  - Authorization: Bearer <your_jwt_token_here> (Ganti <your_jwt_token_here> dengan token yang Anda dapatkan dari login)
 
-### 4. Change Password (Dilindungi JWT)
+  - Authorization: Bearer `<jwt_token>`
 
-- URL: http://localhost:3000/users/change-password
+### 4. Change Password (JWT Required)
+
+- URL: `http://localhost:3000/api/users/change-password`
 - Method: POST
 - Headers:
-  - Content-Type: application/json
-  - Authorization: Bearer <your_jwt_token_here>
-- Body (raw, JSON):
+
+  - Authorization: Bearer `<jwt_token>`
+
+- Body:
 
 ```json
 {
