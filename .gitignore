@@ -1,2 +1,6 @@
 .qodo
 node_modules/
+extracted.md
+lsp-backend.md
+sql.md
+sql.sql.bk
