@@ -7,15 +7,18 @@ const Fastify = require("fastify");
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const lspRoutes = require("./routes/lspRoutes");
+const tukRoutes = require("./routes/tukRoutes"); // Import baru
+const eukRoutes = require("./routes/eukRoutes"); // Import baru
+const schemeRoutes = require("./routes/schemeRoutes"); // Import baru
 const cors = require("@fastify/cors");
 
 function buildApp(opts = {}) {
   const fastify = Fastify(opts);
 
-  // Register CORS - *Pastikan ini di awal sebelum rute lain*
+  // Register CORS
   fastify.register(cors, {
-    origin: "*", // Ganti dengan 'http://localhost:8080' atau domain frontend Anda di produksi
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"], // Tambahkan PATCH jika digunakan
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
   });
 
@@ -23,6 +26,9 @@ function buildApp(opts = {}) {
   fastify.register(authRoutes, { prefix: "/api/auth" });
   fastify.register(userRoutes, { prefix: "/api/users" });
   fastify.register(lspRoutes, { prefix: "/api/lsps" });
+  fastify.register(tukRoutes, { prefix: "/api/tuks" }); // Rute TUK
+  fastify.register(eukRoutes, { prefix: "/api/euks" }); // Rute EUK
+  fastify.register(schemeRoutes, { prefix: "/api/schemes" }); // Rute Skema
 
   fastify.get("/", async (request, reply) => {
     return { message: "Welcome to LSP Backend API!" };
@@ -55,6 +61,246 @@ const start = async () => {
 };
 
 start();
+```
+
+## lsp-backend/sql.sql
+
+```sql
+-- ======================
+-- ROLE & USER
+-- ======================
+CREATE TABLE IF NOT EXISTS roles (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL -- Admin, Asesi, Asesor
+);
+
+INSERT INTO roles (name) VALUES ('Admin'), ('Asesi'), ('Asesor')
+ON CONFLICT (name) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ======================
+-- MASTER DATA
+-- ======================
+CREATE TABLE IF NOT EXISTS lsp_institutions (
+    id SERIAL PRIMARY KEY,
+    kode_lsp VARCHAR(50) UNIQUE NOT NULL,
+    nama_lsp VARCHAR(255) NOT NULL,
+    jenis_lsp VARCHAR(10) NOT NULL CHECK (jenis_lsp IN ('P1','P2','P3')),
+    direktur_lsp VARCHAR(255),
+    manajer_lsp VARCHAR(255),
+    institusi_induk VARCHAR(255),
+    skkni TEXT,
+    telepon VARCHAR(50),
+    faximile VARCHAR(50),
+    whatsapp VARCHAR(50),
+    alamat_email VARCHAR(255),
+    website VARCHAR(255),
+    alamat TEXT,
+    desa VARCHAR(100),
+    kecamatan VARCHAR(100),
+    kota VARCHAR(100),
+    provinsi VARCHAR(100),
+    kode_pos VARCHAR(10),
+    nomor_lisensi VARCHAR(100),
+    masa_berlaku DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tempat_uji_kompetensi (
+    id SERIAL PRIMARY KEY,
+    kode_tuk VARCHAR(50) UNIQUE NOT NULL,
+    nama_tempat VARCHAR(255) NOT NULL,
+    jenis_tuk VARCHAR(50) NOT NULL CHECK (jenis_tuk IN ('Sewaktu','Permanen','Mandiri')),
+    lsp_induk_id INTEGER REFERENCES lsp_institutions(id) ON DELETE SET NULL,
+    penanggung_jawab VARCHAR(255),
+    lisensi_info TEXT,
+    skkni_info TEXT,
+    jadwal_info TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS certification_schemes (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT,
+    skkni TEXT,
+    keterangan_bukti TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS scheme_requirements (
+    id SERIAL PRIMARY KEY,
+    scheme_id INTEGER NOT NULL REFERENCES certification_schemes(id) ON DELETE CASCADE,
+    deskripsi TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS competency_units (
+    id SERIAL PRIMARY KEY,
+    scheme_id INTEGER NOT NULL REFERENCES certification_schemes(id) ON DELETE CASCADE,
+    code VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ======================
+-- EVENT & REGISTRASI
+-- ======================
+CREATE TABLE IF NOT EXISTS events (
+    id SERIAL PRIMARY KEY,
+    scheme_id INTEGER REFERENCES certification_schemes(id) ON DELETE SET NULL,
+    event_name VARCHAR(255) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    registration_deadline DATE,
+    location TEXT,
+    description TEXT,
+    max_participants INTEGER,
+    status VARCHAR(50) DEFAULT 'open' CHECK (status IN ('open','closed','completed')),
+    lsp_penyelenggara VARCHAR(255),
+    penanggung_jawab VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS asesi_registrations (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    registration_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'pending_payment'
+        CHECK (status IN ('pending_payment','waiting_verification','registered','rejected')),
+    payment_proof_url TEXT,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, event_id)
+);
+
+-- ======================
+-- ASESOR & ASESI
+-- ======================
+CREATE TABLE IF NOT EXISTS assessors (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    nip VARCHAR(50) UNIQUE,
+    full_name VARCHAR(255) NOT NULL,
+    phone_number VARCHAR(20),
+    address TEXT,
+    expertise TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS asesi_profiles (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    full_name VARCHAR(255) NOT NULL,
+    birth_date DATE,
+    gender VARCHAR(10) CHECK (gender IN ('male','female')),
+    phone_number VARCHAR(20),
+    address TEXT,
+    education_level VARCHAR(100),
+    ktp_number VARCHAR(20) UNIQUE,
+    ktp_scan_url TEXT,
+    cv_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ======================
+-- JADWAL & HASIL
+-- ======================
+CREATE TABLE IF NOT EXISTS schedules (
+    id SERIAL PRIMARY KEY,
+    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    asesor_id INTEGER REFERENCES assessors(id) ON DELETE SET NULL,
+    asesi_registration_id INTEGER REFERENCES asesi_registrations(id) ON DELETE CASCADE,
+    test_date DATE NOT NULL,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    tuk_location TEXT,
+    status VARCHAR(50) DEFAULT 'scheduled' CHECK (status IN ('scheduled','completed','cancelled')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS assessment_results (
+    id SERIAL PRIMARY KEY,
+    asesi_registration_id INTEGER NOT NULL REFERENCES asesi_registrations(id) ON DELETE CASCADE,
+    asesor_id INTEGER NOT NULL REFERENCES assessors(id) ON DELETE CASCADE,
+    scheme_id INTEGER NOT NULL REFERENCES certification_schemes(id) ON DELETE CASCADE,
+    assessment_date DATE NOT NULL,
+    result VARCHAR(50) NOT NULL CHECK (result IN ('Kompeten','Belum Kompeten')),
+    feedback TEXT,
+    certificate_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ======================
+-- LAINNYA
+-- ======================
+CREATE TABLE IF NOT EXISTS biaya (
+    id SERIAL PRIMARY KEY,
+    scheme_id INTEGER REFERENCES certification_schemes(id) ON DELETE SET NULL,
+    item_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    amount DECIMAL(15,2) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS payment_reports (
+    id SERIAL PRIMARY KEY,
+    asesi_registration_id INTEGER NOT NULL REFERENCES asesi_registrations(id) ON DELETE CASCADE,
+    amount_paid DECIMAL(15,2) NOT NULL,
+    payment_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    payment_method VARCHAR(100),
+    status VARCHAR(50) DEFAULT 'success' CHECK (status IN ('success','failed','pending')),
+    transaction_id VARCHAR(255),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sms_notifications (
+    id SERIAL PRIMARY KEY,
+    recipient_phone VARCHAR(20) NOT NULL,
+    message TEXT NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
+    sent_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS frontpage_content (
+    id SERIAL PRIMARY KEY,
+    section_name VARCHAR(100) UNIQUE NOT NULL,
+    title VARCHAR(255),
+    content TEXT,
+    image_url TEXT,
+    link_url TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 ```
 
 ## lsp-backend/config/database.js
@@ -95,41 +341,80 @@ module.exports = {
 const bcrypt = require("bcryptjs");
 const { generateToken } = require("../utils/jwt");
 const userModel = require("../models/userModel");
+const { getClient } = require("../utils/db"); // Import getClient
 
 async function register(request, reply) {
+  const client = await getClient();
   try {
-    const { username, password, email, role_name } = request.body;
+    // Data dari frontend RegisterAsesiPage:
+    // NPP (-> username), email, password (asumsi nanti ditambahkan),
+    // namaLengkap (-> full_name), nik (-> ktp_number), nomorHp (-> phone_number),
+    // alamat (-> address), serta data wilayah.
 
-    if (!username || !password || !email || !role_name) {
-      return reply.status(400).send({ message: "All fields are required" });
+    // Untuk saat ini, kita akan menambahkan field 'password' di body request
+    // Karena frontend belum mengirimkan password, kita asumsikan ini adalah tahap 1
+    // Registrasi (buat akun) dan tahap 2 (buat/ubah password) atau password ada di request body.
+
+    const {
+      username, // NPP
+      password, // Asumsi password juga dikirim
+      email,
+      full_name,
+      ktp_number,
+      phone_number,
+      address,
+      // data wilayah lainnya diabaikan dulu
+    } = request.body;
+
+    // Hardcode role_name ke 'Asesi' untuk registrasi umum
+    const role_name = "Asesi";
+
+    if (!username || !password || !email || !full_name || !ktp_number) {
+      return reply.status(400).send({ message: "Required fields are missing" });
     }
 
-    // Cek apakah username sudah ada
+    await client.query("BEGIN");
+
+    // 1. Cek username
     const existingUser = await userModel.findUserByUsername(username);
     if (existingUser) {
-      return reply.status(409).send({ message: "Username already taken" });
+      await client.query("ROLLBACK");
+      return reply
+        .status(409)
+        .send({ message: "Username (NPP) already taken" });
     }
 
-    // Dapatkan role_id berdasarkan role_name
+    // 2. Dapatkan role_id 'Asesi'
     const role = await userModel.getRoleByName(role_name);
     if (!role) {
-      return reply.status(400).send({ message: "Invalid role name" });
+      await client.query("ROLLBACK");
+      return reply.status(400).send({ message: "Role 'Asesi' not found" });
     }
     const role_id = role.id;
 
-    // Hash password
+    // 3. Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Buat user baru
-    const newUser = await userModel.createUser({
-      username,
-      password: hashedPassword,
-      email,
-      role_id,
-    });
+    // 4. Buat user baru (Tabel users)
+    const userRes = await client.query(
+      "INSERT INTO users (username, password, email, role_id) VALUES ($1, $2, $3, $4) RETURNING id, username, email, role_id",
+      [username, hashedPassword, email, role_id]
+    );
+    const newUser = userRes.rows[0];
+
+    // 5. Buat profil Asesi (Tabel asesi_profiles)
+    await client.query(
+      `INSERT INTO asesi_profiles (
+          user_id, full_name, phone_number, address, ktp_number
+      ) VALUES ($1, $2, $3, $4, $5)
+      RETURNING *`,
+      [newUser.id, full_name, phone_number, address, ktp_number]
+    );
+
+    await client.query("COMMIT");
 
     reply.status(201).send({
-      message: "User registered successfully",
+      message: "Asesi registered successfully",
       user: {
         id: newUser.id,
         username: newUser.username,
@@ -138,19 +423,23 @@ async function register(request, reply) {
       },
     });
   } catch (error) {
-    console.error("Error during registration:", error);
+    await client.query("ROLLBACK");
+    console.error("Error during Asesi registration:", error);
     reply.status(500).send({ message: "Internal server error" });
+  } finally {
+    client.release();
   }
 }
 
 async function login(request, reply) {
+  // ... (Logika login tidak berubah, hanya memvalidasi NPP/Username)
   try {
-    const { username, password } = request.body;
+    const { username, password } = request.body; // username adalah NPP
 
     if (!username || !password) {
       return reply
         .status(400)
-        .send({ message: "Username and password are required" });
+        .send({ message: "Username (NPP) and password are required" });
     }
 
     // Cari user berdasarkan username
@@ -188,9 +477,81 @@ async function login(request, reply) {
   }
 }
 
+async function forgotPassword(request, reply) {
+  try {
+    const { npp, ktp_number, email } = request.body;
+
+    // TODO: Implementasi validasi NPP/KTP/Email dan kirim link reset
+    // Untuk simulasi, kita hanya cek keberadaan data
+    if (!npp || !ktp_number || !email) {
+      return reply.status(400).send({ message: "All fields are required" });
+    }
+
+    // Logika simulasi:
+    // 1. Cari user berdasarkan NPP (username)
+    const user = await userModel.findUserByUsername(npp);
+    if (!user) {
+      return reply.status(404).send({ message: "User not found" });
+    }
+
+    // 2. Kirim pesan sukses (simulasi)
+    // Di dunia nyata: Generate token reset, simpan di DB, kirim email berisi link.
+
+    reply.send({
+      message:
+        "Jika data ditemukan, link reset password telah dikirimkan ke email Anda.",
+    });
+  } catch (error) {
+    console.error("Error during forgot password process:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
 module.exports = {
   register,
   login,
+  forgotPassword, // Export fungsi baru
+};
+```
+
+## lsp-backend/controllers/eukController.js
+
+```js
+// controllers/eukController.js
+const eukModel = require("../models/eukModel");
+
+async function getAllEuksHandler(request, reply) {
+  try {
+    const { search, page = 1, limit = 10 } = request.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const euks = await eukModel.getAllEuks({
+      search,
+      limit: parseInt(limit),
+      offset,
+    });
+    const total = await eukModel.getTotalEuks(search);
+
+    reply.send({
+      message: "EUKs retrieved successfully",
+      data: euks,
+      pagination: {
+        totalItems: total,
+        currentPage: parseInt(page),
+        itemsPerPage: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error getting all EUKs:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+// ... (createEukHandler, getEukByIdHandler, updateEukHandler, deleteEukHandler)
+
+module.exports = {
+  getAllEuksHandler,
 };
 ```
 
@@ -298,6 +659,88 @@ module.exports = {
   getLspByIdHandler,
   updateLspHandler,
   deleteLspHandler,
+};
+```
+
+## lsp-backend/controllers/schemeController.js
+
+```js
+// controllers/schemeController.js
+const schemeModel = require("../models/schemeModel");
+
+async function getAllSchemesHandler(request, reply) {
+  try {
+    const { search, page = 1, limit = 10 } = request.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const schemes = await schemeModel.getAllSchemes({
+      search,
+      limit: parseInt(limit),
+      offset,
+    });
+    const total = await schemeModel.getTotalSchemes(search);
+
+    reply.send({
+      message: "Schemes retrieved successfully",
+      data: schemes,
+      pagination: {
+        totalItems: total,
+        currentPage: parseInt(page),
+        itemsPerPage: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error getting all Schemes:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+// ... (createSchemeHandler, getSchemeByIdHandler, updateSchemeHandler, deleteSchemeHandler)
+
+module.exports = {
+  getAllSchemesHandler,
+};
+```
+
+## lsp-backend/controllers/tukController.js
+
+```js
+// controllers/tukController.js
+const tukModel = require("../models/tukModel");
+
+async function getAllTuksHandler(request, reply) {
+  try {
+    const { search, page = 1, limit = 10 } = request.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const tuks = await tukModel.getAllTuks({
+      search,
+      limit: parseInt(limit),
+      offset,
+    });
+    const total = await tukModel.getTotalTuks(search);
+
+    reply.send({
+      message: "TUKs retrieved successfully",
+      data: tuks,
+      pagination: {
+        totalItems: total,
+        currentPage: parseInt(page),
+        itemsPerPage: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error getting all TUKs:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+// ... (createTukHandler, getTukByIdHandler, updateTukHandler, deleteTukHandler)
+
+module.exports = {
+  getAllTuksHandler,
 };
 ```
 
@@ -456,6 +899,104 @@ const authorize =
   };
 
 module.exports = authorize;
+```
+
+## lsp-backend/models/eukModel.js
+
+```js
+// models/eukModel.js
+const { query } = require("../utils/db");
+
+async function createEuk(eukData) {
+  const {
+    scheme_id, // Skema yang diuji dalam event
+    event_name,
+    start_date,
+    end_date,
+    registration_deadline,
+    location,
+    description,
+    max_participants,
+    lsp_penyelenggara, // Tambahan untuk simulasi data frontend
+    penanggung_jawab, // Tambahan untuk simulasi data frontend
+  } = eukData;
+
+  const res = await query(
+    `INSERT INTO events (
+        scheme_id, event_name, start_date, end_date, registration_deadline, location, description, max_participants, lsp_penyelenggara, penanggung_jawab
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    RETURNING *`,
+    [
+      scheme_id,
+      event_name,
+      start_date,
+      end_date,
+      registration_deadline,
+      location,
+      description,
+      max_participants,
+      lsp_penyelenggara,
+      penanggung_jawab,
+    ]
+  );
+  return res.rows[0];
+}
+
+async function getAllEuks({ search, limit, offset }) {
+  let queryText = "SELECT * FROM events";
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push(
+      "(LOWER(event_name) LIKE $1 OR LOWER(location) LIKE $1 OR LOWER(penanggung_jawab) LIKE $1)"
+    );
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  queryText += " ORDER BY start_date DESC";
+
+  if (limit) {
+    queryParams.push(limit);
+    queryText += ` LIMIT $${queryParams.length}`;
+  }
+  if (offset) {
+    queryParams.push(offset);
+    queryText += ` OFFSET $${queryParams.length}`;
+  }
+
+  const res = await query(queryText, queryParams);
+  return res.rows;
+}
+
+// ... (getById, update, delete, getTotal methods, similar to lspModel)
+async function getTotalEuks(search) {
+  let queryText = "SELECT COUNT(*) FROM events";
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push("(LOWER(event_name) LIKE $1 OR LOWER(location) LIKE $1)");
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  const res = await query(queryText, queryParams);
+  return parseInt(res.rows[0].count, 10);
+}
+
+module.exports = {
+  createEuk,
+  getAllEuks,
+  getTotalEuks,
+};
 ```
 
 ## lsp-backend/models/lspModel.js
@@ -652,54 +1193,219 @@ module.exports = {
 };
 ```
 
+## lsp-backend/models/schemeModel.js
+
+```js
+// models/schemeModel.js
+const { query } = require("../utils/db");
+
+async function createScheme(schemeData) {
+  const {
+    name,
+    code,
+    description,
+    skkni, // Asumsi field SKKNI ditambahkan di tabel schemes
+    keterangan_bukti, // Tambahan untuk simulasi data frontend
+  } = schemeData;
+
+  const res = await query(
+    `INSERT INTO certification_schemes (
+        name, code, description, skkni, keterangan_bukti
+    ) VALUES ($1, $2, $3, $4, $5)
+    RETURNING *`,
+    [name, code, description, skkni, keterangan_bukti]
+  );
+  return res.rows[0];
+}
+
+async function getAllSchemes({ search, limit, offset }) {
+  let queryText = "SELECT * FROM certification_schemes";
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push(
+      "(LOWER(name) LIKE $1 OR LOWER(code) LIKE $1 OR LOWER(skkni) LIKE $1)"
+    );
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  queryText += " ORDER BY created_at DESC";
+
+  if (limit) {
+    queryParams.push(limit);
+    queryText += ` LIMIT $${queryParams.length}`;
+  }
+  if (offset) {
+    queryParams.push(offset);
+    queryText += ` OFFSET $${queryParams.length}`;
+  }
+
+  const res = await query(queryText, queryParams);
+  return res.rows;
+}
+
+// ... (getById, update, delete, getTotal methods, similar to lspModel)
+async function getTotalSchemes(search) {
+  let queryText = "SELECT COUNT(*) FROM certification_schemes";
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push("(LOWER(name) LIKE $1 OR LOWER(code) LIKE $1)");
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  const res = await query(queryText, queryParams);
+  return parseInt(res.rows[0].count, 10);
+}
+
+module.exports = {
+  createScheme,
+  getAllSchemes,
+  getTotalSchemes,
+};
+```
+
+## lsp-backend/models/tukModel.js
+
+```js
+// models/tukModel.js
+const { query } = require("../utils/db");
+
+async function createTuk(tukData) {
+  const {
+    kode_tuk,
+    nama_tempat,
+    jenis_tuk,
+    lsp_induk_id, // Asumsi ini referensi ke lsp_institutions(id)
+    penanggung_jawab,
+    lisensi_info,
+    skkni_info,
+    jadwal_info,
+  } = tukData;
+
+  const res = await query(
+    `INSERT INTO tempat_uji_kompetensi (
+        kode_tuk, nama_tempat, jenis_tuk, lsp_induk_id, penanggung_jawab, lisensi_info, skkni_info, jadwal_info
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING *`,
+    [
+      kode_tuk,
+      nama_tempat,
+      jenis_tuk,
+      lsp_induk_id,
+      penanggung_jawab,
+      lisensi_info,
+      skkni_info,
+      jadwal_info,
+    ]
+  );
+  return res.rows[0];
+}
+
+async function getAllTuks({ search, limit, offset }) {
+  let queryText = `
+    SELECT t.*, l.nama_lsp, l.jenis_lsp
+    FROM tempat_uji_kompetensi t
+    LEFT JOIN lsp_institutions l ON t.lsp_induk_id = l.id
+  `;
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push(
+      "(LOWER(t.nama_tempat) LIKE $1 OR LOWER(t.kode_tuk) LIKE $1 OR LOWER(t.penanggung_jawab) LIKE $1 OR LOWER(l.nama_lsp) LIKE $1)"
+    );
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  queryText += " ORDER BY t.created_at DESC";
+
+  if (limit) {
+    queryParams.push(limit);
+    queryText += ` LIMIT $${queryParams.length}`;
+  }
+  if (offset) {
+    queryParams.push(offset);
+    queryText += ` OFFSET $${queryParams.length}`;
+  }
+
+  const res = await query(queryText, queryParams);
+  return res.rows;
+}
+
+// Tambahkan fungsi untuk getById, update, delete dan getTotal (mirip lspModel)
+// ... (omitted for brevity, follow lspModel structure)
+async function getTotalTuks(search) {
+  let queryText = "SELECT COUNT(*) FROM tempat_uji_kompetensi";
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push("(LOWER(nama_tempat) LIKE $1 OR LOWER(kode_tuk) LIKE $1)");
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  const res = await query(queryText, queryParams);
+  return parseInt(res.rows[0].count, 10);
+}
+
+module.exports = {
+  createTuk,
+  getAllTuks,
+  getTotalTuks,
+  // ... (export other functions)
+};
+```
+
 ## lsp-backend/models/userModel.js
 
 ```js
 // models/userModel.js
 const { query } = require("../utils/db");
-const bcrypt = require("bcryptjs"); // Tambahkan ini karena updateUserPassword akan membutuhkannya untuk hash password baru
+const bcrypt = require("bcryptjs");
 
-async function createUser(userData) {
-  const { username, password, email, role_id } = userData;
+// ... (existing functions: createUser, findUserByUsername, findUserById, getRoleByName, updateUserPassword, getRoleById)
+
+// Fungsi baru untuk membuat profil asesi
+async function createAsesiProfile(userId, profileData) {
+  const {
+    full_name,
+    phone_number,
+    ktp_number, // NIK di frontend dipetakan ke ktp_number
+    address,
+    email,
+    // Kita anggap data lokasi (provinsi, kota, dll) tidak disimpan di profil Asesi
+    // Tetapi jika ingin disimpan, tambahkan kolom di asesi_profiles (sesuai sql2.sql)
+  } = profileData;
+
+  // Catatan: Asesi Profiles di sql2.sql tidak punya kolom email, tapi kita ambil dari data registrasi.
+  // Kita akan menggunakan kolom yang ada di sql2.sql.
+
   const res = await query(
-    "INSERT INTO users (username, password, email, role_id) VALUES ($1, $2, $3, $4) RETURNING id, username, email, role_id",
-    [username, password, email, role_id]
+    `INSERT INTO asesi_profiles (
+        user_id, full_name, phone_number, address, ktp_number
+    ) VALUES ($1, $2, $3, $4, $5)
+    RETURNING *`,
+    [userId, full_name, phone_number, address, ktp_number]
   );
-  return res.rows[0];
-}
-
-async function findUserByUsername(username) {
-  // Kita mungkin butuh password untuk verifikasi login, jadi SELECT *
-  const res = await query("SELECT * FROM users WHERE username = $1", [
-    username,
-  ]);
-  return res.rows[0];
-}
-
-async function findUserById(id) {
-  // Untuk profil, kita tidak perlu mengembalikan password
-  const res = await query(
-    "SELECT id, username, email, role_id FROM users WHERE id = $1",
-    [id]
-  );
-  return res.rows[0];
-}
-
-async function getRoleByName(roleName) {
-  const res = await query("SELECT id FROM roles WHERE name = $1", [roleName]);
-  return res.rows[0];
-}
-
-async function updateUserPassword(userId, hashedPassword) {
-  const res = await query(
-    "UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id",
-    [hashedPassword, userId]
-  );
-  return res.rows[0];
-}
-
-async function getRoleById(roleId) {
-  const res = await query("SELECT name FROM roles WHERE id = $1", [roleId]);
   return res.rows[0];
 }
 
@@ -709,7 +1415,8 @@ module.exports = {
   findUserById,
   getRoleByName,
   updateUserPassword,
-  getRoleById, // Export the new function
+  getRoleById,
+  createAsesiProfile, // Export fungsi baru
 };
 ```
 
@@ -722,9 +1429,38 @@ const authController = require("../controllers/authController");
 async function authRoutes(fastify, options) {
   fastify.post("/register", authController.register);
   fastify.post("/login", authController.login);
+  fastify.post("/forgot-password", authController.forgotPassword); // Rute baru
 }
 
 module.exports = authRoutes;
+```
+
+## lsp-backend/routes/eukRoutes.js
+
+```js
+// routes/eukRoutes.js
+const eukController = require("../controllers/eukController");
+const authenticate = require("../middlewares/authMiddleware");
+const authorize = require("../middlewares/authorizeMiddleware");
+
+async function eukRoutes(fastify, options) {
+  // Hanya Admin yang bisa CRUD EUK
+  const preHandlerAdmin = [authenticate, authorize(["Admin"])];
+  const preHandlerAuth = [authenticate];
+
+  fastify.get(
+    "/",
+    { preHandler: preHandlerAuth },
+    eukController.getAllEuksHandler
+  );
+  // fastify.get("/:id", { preHandler: preHandlerAuth }, eukController.getEukByIdHandler);
+
+  // fastify.post("/", { preHandler: preHandlerAdmin }, eukController.createEukHandler);
+  // fastify.put("/:id", { preHandler: preHandlerAdmin }, eukController.updateEukHandler);
+  // fastify.delete("/:id", { preHandler: preHandlerAdmin }, eukController.deleteEukHandler);
+}
+
+module.exports = eukRoutes;
 ```
 
 ## lsp-backend/routes/lspRoutes.js
@@ -779,6 +1515,66 @@ async function lspRoutes(fastify, options) {
 module.exports = lspRoutes;
 ```
 
+## lsp-backend/routes/schemeRoutes.js
+
+```js
+// routes/schemeRoutes.js
+const schemeController = require("../controllers/schemeController");
+const authenticate = require("../middlewares/authMiddleware");
+const authorize = require("../middlewares/authorizeMiddleware");
+
+async function schemeRoutes(fastify, options) {
+  // Hanya Admin yang bisa CRUD Skema
+  const preHandlerAdmin = [authenticate, authorize(["Admin"])];
+  const preHandlerAuth = [authenticate];
+
+  fastify.get(
+    "/",
+    { preHandler: preHandlerAuth },
+    schemeController.getAllSchemesHandler
+  );
+  // fastify.get("/:id", { preHandler: preHandlerAuth }, schemeController.getSchemeByIdHandler);
+
+  // fastify.post("/", { preHandler: preHandlerAdmin }, schemeController.createSchemeHandler);
+  // fastify.put("/:id", { preHandler: preHandlerAdmin }, schemeController.updateSchemeHandler);
+  // fastify.delete("/:id", { preHandler: preHandlerAdmin }, schemeController.deleteSchemeHandler);
+
+  // Rute untuk persyaratan skema (nested resource)
+  // fastify.get("/:schemeId/requirements", { preHandler: preHandlerAuth }, schemeController.getRequirementsHandler);
+  // fastify.post("/:schemeId/requirements", { preHandler: preHandlerAdmin }, schemeController.createRequirementHandler);
+}
+
+module.exports = schemeRoutes;
+```
+
+## lsp-backend/routes/tukRoutes.js
+
+```js
+// routes/tukRoutes.js
+const tukController = require("../controllers/tukController");
+const authenticate = require("../middlewares/authMiddleware");
+const authorize = require("../middlewares/authorizeMiddleware");
+
+async function tukRoutes(fastify, options) {
+  // Hanya Admin yang bisa CRUD TUK
+  const preHandlerAdmin = [authenticate, authorize(["Admin"])];
+  const preHandlerAuth = [authenticate];
+
+  fastify.get(
+    "/",
+    { preHandler: preHandlerAuth },
+    tukController.getAllTuksHandler
+  );
+  // fastify.get("/:id", { preHandler: preHandlerAuth }, tukController.getTukByIdHandler);
+
+  // fastify.post("/", { preHandler: preHandlerAdmin }, tukController.createTukHandler);
+  // fastify.put("/:id", { preHandler: preHandlerAdmin }, tukController.updateTukHandler);
+  // fastify.delete("/:id", { preHandler: preHandlerAdmin }, tukController.deleteTukHandler);
+}
+
+module.exports = tukRoutes;
+```
+
 ## lsp-backend/routes/userRoutes.js
 
 ```js
@@ -820,9 +1616,15 @@ async function query(text, params) {
   }
 }
 
+// Tambahkan fungsi untuk mendapatkan client pool secara langsung (untuk transaksi)
+async function getClient() {
+  return pool.connect();
+}
+
 module.exports = {
   query,
-  pool, // Ekspor pool juga jika dibutuhkan langsung di tempat lain (misalnya untuk transaksi)
+  pool,
+  getClient, // Export fungsi baru
 };
 ```
 
@@ -851,349 +1653,4 @@ module.exports = {
   generateToken,
   verifyToken,
 };
-```
-
-## lsp-backend/sql.sql
-
-```sql
--- Table: roles
-CREATE TABLE roles (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) UNIQUE NOT NULL -- e.g., 'Admin', 'Asesi', 'Asesor'
-);
-
--- Insert initial roles
-INSERT INTO roles (name) VALUES ('Admin'), ('Asesi'), ('Asesor') ON CONFLICT (name) DO NOTHING;
-
--- Table: users
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(100) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    role_id INTEGER NOT NULL REFERENCES roles(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: certification_schemes (Skema Sertifikasi)
-CREATE TABLE certification_schemes (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    code VARCHAR(50) UNIQUE NOT NULL,
-    description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: competency_units (Unit Kompetensi)
-CREATE TABLE competency_units (
-    id SERIAL PRIMARY KEY,
-    scheme_id INTEGER NOT NULL REFERENCES certification_schemes(id),
-    code VARCHAR(50) NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: events (Event Uji Kompetensi)
-CREATE TABLE events (
-    id SERIAL PRIMARY KEY,
-    scheme_id INTEGER NOT NULL REFERENCES certification_schemes(id),
-    event_name VARCHAR(255) NOT NULL,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    registration_deadline DATE NOT NULL,
-    location TEXT,
-    description TEXT,
-    max_participants INTEGER,
-    status VARCHAR(50) DEFAULT 'open', -- e.g., 'open', 'closed', 'completed'
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: asesi_registrations (Pendaftaran Asesi ke Event)
-CREATE TABLE asesi_registrations (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id), -- User dengan role 'Asesi'
-    event_id INTEGER NOT NULL REFERENCES events(id),
-    registration_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    status VARCHAR(50) DEFAULT 'pending_payment', -- e.g., 'pending_payment', 'waiting_verification', 'registered', 'rejected'
-    payment_proof_url TEXT,
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, event_id) -- Asesi hanya bisa mendaftar ke satu event satu kali
-);
-
--- Table: assessors (Data Asesor)
-CREATE TABLE assessors (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id), -- User dengan role 'Asesor'
-    nip VARCHAR(50) UNIQUE,
-    full_name VARCHAR(255) NOT NULL,
-    phone_number VARCHAR(20),
-    address TEXT,
-    expertise TEXT, -- Bidang keahlian
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: asesi_profiles (Data Profil Asesi)
-CREATE TABLE asesi_profiles (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id), -- User dengan role 'Asesi'
-    full_name VARCHAR(255) NOT NULL,
-    birth_date DATE,
-    gender VARCHAR(10), -- 'male', 'female'
-    phone_number VARCHAR(20),
-    address TEXT,
-    education_level VARCHAR(100),
-    ktp_number VARCHAR(20) UNIQUE,
-    ktp_scan_url TEXT, -- URL ke scan KTP
-    cv_url TEXT, -- URL ke CV
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: schedules (Jadwal Uji Kompetensi)
-CREATE TABLE schedules (
-    id SERIAL PRIMARY KEY,
-    event_id INTEGER NOT NULL REFERENCES events(id),
-    asesor_id INTEGER REFERENCES assessors(id), -- Nullable jika asesor belum ditunjuk
-    asesi_registration_id INTEGER REFERENCES asesi_registrations(id), -- Jadwal spesifik untuk asesi
-    test_date DATE NOT NULL,
-    start_time TIME NOT NULL,
-    end_time TIME NOT NULL,
-    tuk_location TEXT, -- Tempat Uji Kompetensi
-    status VARCHAR(50) DEFAULT 'scheduled', -- e.g., 'scheduled', 'completed', 'cancelled'
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: assessment_results (Hasil Uji Kompetensi)
-CREATE TABLE assessment_results (
-    id SERIAL PRIMARY KEY,
-    asesi_registration_id INTEGER NOT NULL REFERENCES asesi_registrations(id),
-    asesor_id INTEGER NOT NULL REFERENCES assessors(id),
-    scheme_id INTEGER NOT NULL REFERENCES certification_schemes(id),
-    assessment_date DATE NOT NULL,
-    result VARCHAR(50) NOT NULL, -- e.g., 'Kompeten', 'Belum Kompeten'
-    feedback TEXT,
-    certificate_url TEXT, -- URL ke sertifikat jika kompeten
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: sms_notifications (Log Notifikasi SMS)
-CREATE TABLE sms_notifications (
-    id SERIAL PRIMARY KEY,
-    recipient_phone VARCHAR(20) NOT NULL,
-    message TEXT NOT NULL,
-    status VARCHAR(50) DEFAULT 'pending', -- e.g., 'pending', 'sent', 'failed'
-    sent_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: frontpage_content (Konten Frontpage Website)
-CREATE TABLE frontpage_content (
-    id SERIAL PRIMARY KEY,
-    section_name VARCHAR(100) UNIQUE NOT NULL, -- e.g., 'hero_banner', 'about_us', 'news', 'contact_info'
-    title VARCHAR(255),
-    content TEXT,
-    image_url TEXT,
-    link_url TEXT,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Pastikan tabel roles dan users sudah ada dan terisi
--- ... (skrip CREATE TABLE users dan roles dari jawaban sebelumnya) ...
-
--- Table: certification_schemes (Skema Sertifikasi)
-CREATE TABLE IF NOT EXISTS certification_schemes (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    code VARCHAR(50) UNIQUE NOT NULL,
-    description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: competency_units (Unit Kompetensi)
-CREATE TABLE IF NOT EXISTS competency_units (
-    id SERIAL PRIMARY KEY,
-    scheme_id INTEGER NOT NULL REFERENCES certification_schemes(id) ON DELETE CASCADE,
-    code VARCHAR(50) NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: events (Event Uji Kompetensi)
-CREATE TABLE IF NOT EXISTS events (
-    id SERIAL PRIMARY KEY,
-    scheme_id INTEGER NOT NULL REFERENCES certification_schemes(id) ON DELETE RESTRICT, -- RESTRICT agar tidak menghapus skema yang punya event
-    event_name VARCHAR(255) NOT NULL,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    registration_deadline DATE NOT NULL,
-    location TEXT,
-    description TEXT,
-    max_participants INTEGER,
-    status VARCHAR(50) DEFAULT 'open', -- e.g., 'open', 'closed', 'completed'
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: lsp_institutions (Lembaga Sertifikasi Profesi) - Ini adalah tabel baru untuk menggantikan penggunaan dummy data LSP
-CREATE TABLE IF NOT EXISTS lsp_institutions (
-    id SERIAL PRIMARY KEY,
-    kode_lsp VARCHAR(50) UNIQUE NOT NULL,
-    nama_lsp VARCHAR(255) NOT NULL,
-    jenis_lsp VARCHAR(10) NOT NULL, -- P1, P2, P3
-    direktur_lsp VARCHAR(255),
-    manajer_lsp VARCHAR(255),
-    institusi_induk VARCHAR(255),
-    skkni TEXT,
-    telepon VARCHAR(50),
-    faximile VARCHAR(50),
-    whatsapp VARCHAR(50),
-    alamat_email VARCHAR(255),
-    website VARCHAR(255),
-    alamat TEXT,
-    desa VARCHAR(100),
-    kecamatan VARCHAR(100),
-    kota VARCHAR(100),
-    provinsi VARCHAR(100),
-    kode_pos VARCHAR(10),
-    nomor_lisensi VARCHAR(100),
-    masa_berlaku DATE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: asesi_registrations (Pendaftaran Asesi ke Event)
-CREATE TABLE IF NOT EXISTS asesi_registrations (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, -- User dengan role 'Asesi'
-    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    registration_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    status VARCHAR(50) DEFAULT 'pending_payment', -- e.g., 'pending_payment', 'waiting_verification', 'registered', 'rejected'
-    payment_proof_url TEXT,
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, event_id) -- Asesi hanya bisa mendaftar ke satu event satu kali
-);
-
--- Table: assessors (Data Asesor)
-CREATE TABLE IF NOT EXISTS assessors (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, -- User dengan role 'Asesor'
-    nip VARCHAR(50) UNIQUE,
-    full_name VARCHAR(255) NOT NULL,
-    phone_number VARCHAR(20),
-    address TEXT,
-    expertise TEXT, -- Bidang keahlian
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: asesi_profiles (Data Profil Asesi)
-CREATE TABLE IF NOT EXISTS asesi_profiles (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, -- User dengan role 'Asesi'
-    full_name VARCHAR(255) NOT NULL,
-    birth_date DATE,
-    gender VARCHAR(10), -- 'male', 'female'
-    phone_number VARCHAR(20),
-    address TEXT,
-    education_level VARCHAR(100),
-    ktp_number VARCHAR(20) UNIQUE,
-    ktp_scan_url TEXT, -- URL ke scan KTP
-    cv_url TEXT, -- URL ke CV
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: schedules (Jadwal Uji Kompetensi)
-CREATE TABLE IF NOT EXISTS schedules (
-    id SERIAL PRIMARY KEY,
-    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    asesor_id INTEGER REFERENCES assessors(id) ON DELETE SET NULL, -- Nullable jika asesor belum ditunjuk
-    asesi_registration_id INTEGER REFERENCES asesi_registrations(id) ON DELETE CASCADE, -- Jadwal spesifik untuk asesi
-    test_date DATE NOT NULL,
-    start_time TIME NOT NULL,
-    end_time TIME NOT NULL,
-    tuk_location TEXT, -- Tempat Uji Kompetensi
-    status VARCHAR(50) DEFAULT 'scheduled', -- e.g., 'scheduled', 'completed', 'cancelled'
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: assessment_results (Hasil Uji Kompetensi)
-CREATE TABLE IF NOT EXISTS assessment_results (
-    id SERIAL PRIMARY KEY,
-    asesi_registration_id INTEGER NOT NULL REFERENCES asesi_registrations(id) ON DELETE CASCADE,
-    asesor_id INTEGER NOT NULL REFERENCES assessors(id) ON DELETE CASCADE,
-    scheme_id INTEGER NOT NULL REFERENCES certification_schemes(id) ON DELETE CASCADE,
-    assessment_date DATE NOT NULL,
-    result VARCHAR(50) NOT NULL, -- e.g., 'Kompeten', 'Belum Kompeten'
-    feedback TEXT,
-    certificate_url TEXT, -- URL ke sertifikat jika kompeten
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: sms_notifications (Log Notifikasi SMS)
-CREATE TABLE IF NOT EXISTS sms_notifications (
-    id SERIAL PRIMARY KEY,
-    recipient_phone VARCHAR(20) NOT NULL,
-    message TEXT NOT NULL,
-    status VARCHAR(50) DEFAULT 'pending', -- e.g., 'pending', 'sent', 'failed'
-    sent_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: frontpage_content (Konten Frontpage Website)
-CREATE TABLE IF NOT EXISTS frontpage_content (
-    id SERIAL PRIMARY KEY,
-    section_name VARCHAR(100) UNIQUE NOT NULL, -- e.g., 'hero_banner', 'about_us', 'news', 'contact_info'
-    title VARCHAR(255),
-    content TEXT,
-    image_url TEXT,
-    link_url TEXT,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: biaya (Biaya)
-CREATE TABLE IF NOT EXISTS biaya (
-    id SERIAL PRIMARY KEY,
-    scheme_id INTEGER REFERENCES certification_schemes(id) ON DELETE SET NULL, -- Biaya bisa terkait skema atau umum
-    item_name VARCHAR(255) NOT NULL,
-    description TEXT,
-    amount DECIMAL(15, 2) NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Table: payment_reports (Laporan Pembayaran)
-CREATE TABLE IF NOT EXISTS payment_reports (
-    id SERIAL PRIMARY KEY,
-    asesi_registration_id INTEGER NOT NULL REFERENCES asesi_registrations(id) ON DELETE CASCADE,
-    amount_paid DECIMAL(15, 2) NOT NULL,
-    payment_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    payment_method VARCHAR(100),
-    status VARCHAR(50) DEFAULT 'success', -- e.g., 'success', 'failed', 'pending'
-    transaction_id VARCHAR(255),
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
 ```

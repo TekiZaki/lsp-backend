@@ -1,5 +1,6 @@
-// middlewares/authorizeMiddleware.js
-const userModel = require("../models/userModel"); // Perlu untuk mendapatkan nama peran
+// lsp-backend/middlewares/authorizeMiddleware.js
+// Menggunakan GlobalModel untuk mendapatkan data role
+const globalModel = require("../models/globalModel");
 
 const authorize =
   (roles = []) =>
@@ -15,8 +16,10 @@ const authorize =
     }
 
     try {
-      // Dapatkan nama peran dari ID peran
-      const roleQueryResult = await userModel.getRoleById(request.user.role_id);
+      // Dapatkan nama peran dari ID peran melalui GlobalModel
+      const roleQueryResult = await globalModel.getRoleById(
+        request.user.role_id
+      );
       if (!roleQueryResult || !roleQueryResult.name) {
         return reply
           .status(403)

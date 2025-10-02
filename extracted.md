@@ -1,18 +1,19 @@
 # Code Dump for lsp-backend
 
----
-
 ## lsp-backend/app.js
 
 ```js
+// lsp-backend/app.js (FINAL UPDATED)
 const Fastify = require("fastify");
-const authRoutes = require("./routes/authRoutes");
-const userRoutes = require("./routes/userRoutes");
-const lspRoutes = require("./routes/lspRoutes");
-const tukRoutes = require("./routes/tukRoutes"); // Import baru
-const eukRoutes = require("./routes/eukRoutes"); // Import baru
-const schemeRoutes = require("./routes/schemeRoutes"); // Import baru
 const cors = require("@fastify/cors");
+
+// Impor Routes Modul (Feature-Based)
+const authRoutes = require("./modules/auth/authRoutes");
+const userRoutes = require("./modules/user/userRoutes");
+const lspRoutes = require("./modules/lsp/LembagaSertifikasiProfesiRoutes");
+const eukRoutes = require("./modules/euk/EventUjiKompetensiRoutes");
+const tukRoutes = require("./modules/tuk/TempatUjiKompetensiRoutes");
+const schemeRoutes = require("./modules/scheme/SkemaSertifikasiRoutes");
 
 function buildApp(opts = {}) {
   const fastify = Fastify(opts);
@@ -24,13 +25,13 @@ function buildApp(opts = {}) {
     allowedHeaders: ["Content-Type", "Authorization"],
   });
 
-  // Register routes
+  // --- Register Feature Modules ---
   fastify.register(authRoutes, { prefix: "/api/auth" });
   fastify.register(userRoutes, { prefix: "/api/users" });
   fastify.register(lspRoutes, { prefix: "/api/lsps" });
-  fastify.register(tukRoutes, { prefix: "/api/tuks" }); // Rute TUK
-  fastify.register(eukRoutes, { prefix: "/api/euks" }); // Rute EUK
-  fastify.register(schemeRoutes, { prefix: "/api/schemes" }); // Rute Skema
+  fastify.register(eukRoutes, { prefix: "/api/euks" });
+  fastify.register(tukRoutes, { prefix: "/api/tuks" });
+  fastify.register(schemeRoutes, { prefix: "/api/schemes" });
 
   fastify.get("/", async (request, reply) => {
     return { message: "Welcome to LSP Backend API!" };
@@ -65,6 +66,108 @@ const start = async () => {
 start();
 ```
 
+## lsp-backend/sql.sql
+
+```sql
+-- 1. Roles
+CREATE TABLE roles (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Users
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    role_id INT REFERENCES roles(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Asesi Profiles
+CREATE TABLE asesi_profiles (
+    id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    full_name VARCHAR(100) NOT NULL,
+    phone_number VARCHAR(20),
+    address TEXT,
+    ktp_number VARCHAR(50) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. LSP Institutions
+CREATE TABLE lsp_institutions (
+    id SERIAL PRIMARY KEY,
+    nama_lsp VARCHAR(150) NOT NULL,
+    direktur_lsp VARCHAR(100),
+    jenis_lsp VARCHAR(50),
+    alamat TEXT,
+    telepon VARCHAR(20),
+    email VARCHAR(100),
+    website VARCHAR(150),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5. Tempat Uji Kompetensi (TUK)
+CREATE TABLE tempat_uji_kompetensi (
+    id SERIAL PRIMARY KEY,
+    kode_tuk VARCHAR(50) UNIQUE NOT NULL,
+    nama_tempat VARCHAR(150) NOT NULL,
+    jenis_tuk VARCHAR(50),
+    penanggung_jawab VARCHAR(100),
+    lisensi_info TEXT,
+    skkni_info TEXT,
+    jadwal_info TEXT,
+    lsp_induk_id INT REFERENCES lsp_institutions(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 6. Certification Schemes
+CREATE TABLE certification_schemes (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    description TEXT,
+    skkni TEXT,
+    keterangan_bukti TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 7. Events (EUK - Event Uji Kompetensi)
+CREATE TABLE events (
+    id SERIAL PRIMARY KEY,
+    event_name VARCHAR(150) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE,
+    registration_deadline DATE,
+    location VARCHAR(150),
+    address TEXT,
+    max_participants INT,
+    penanggung_jawab VARCHAR(100),
+    lsp_penyelenggara VARCHAR(150),
+    description TEXT,
+    status VARCHAR(50),
+    scheme_id INT REFERENCES certification_schemes(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 8. Default Roles
+INSERT INTO roles (name) VALUES
+('Admin'),
+('Asesi'),
+('Asesor');
+
+```
+
 ## lsp-backend/config/database.js
 
 ```js
@@ -96,48 +199,185 @@ module.exports = {
 };
 ```
 
-## lsp-backend/controllers/authController.js
+## lsp-backend/middlewares/authMiddleware.js
 
 ```js
-// controllers/authController.js
+// middlewares/authMiddleware.js
+const { verifyToken } = require("../utils/jwt");
+
+const authenticate = async (request, reply) => {
+  try {
+    const authHeader = request.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return reply
+        .status(401)
+        .send({ message: "Authorization token required" });
+    }
+
+    const token = authHeader.split(" ")[1];
+    const decoded = verifyToken(token);
+
+    if (!decoded) {
+      return reply.status(401).send({ message: "Invalid or expired token" });
+    }
+
+    // Simpan data user yang terautentikasi ke objek request
+    // Fastify tidak secara otomatis memiliki `request.user`, jadi kita bisa menambahkannya
+    request.user = decoded;
+  } catch (error) {
+    console.error("Authentication error:", error);
+    return reply.status(500).send({ message: "Internal server error" });
+  }
+};
+
+module.exports = authenticate;
+```
+
+## lsp-backend/middlewares/authorizeMiddleware.js
+
+```js
+// lsp-backend/middlewares/authorizeMiddleware.js
+// Menggunakan GlobalModel untuk mendapatkan data role
+const globalModel = require("../models/globalModel");
+
+const authorize =
+  (roles = []) =>
+  async (request, reply) => {
+    if (typeof roles === "string") {
+      roles = [roles];
+    }
+
+    if (!request.user || !request.user.role_id) {
+      return reply
+        .status(403)
+        .send({ message: "Access denied. No role information." });
+    }
+
+    try {
+      // Dapatkan nama peran dari ID peran melalui GlobalModel
+      const roleQueryResult = await globalModel.getRoleById(
+        request.user.role_id
+      );
+      if (!roleQueryResult || !roleQueryResult.name) {
+        return reply
+          .status(403)
+          .send({ message: "Access denied. Invalid role." });
+      }
+      const userRoleName = roleQueryResult.name;
+
+      // Periksa apakah peran pengguna termasuk dalam peran yang diizinkan
+      if (roles.length && !roles.includes(userRoleName)) {
+        return reply.status(403).send({
+          message: "Access denied. You do not have the required role.",
+        });
+      }
+    } catch (error) {
+      console.error("Authorization error:", error);
+      return reply
+        .status(500)
+        .send({ message: "Internal server error during authorization" });
+    }
+  };
+
+module.exports = authorize;
+```
+
+## lsp-backend/models/globalModel.js
+
+```js
+// lsp-backend/models/globalModel.js
+const { query } = require("../utils/db");
+
+// Fungsi umum untuk mendapatkan Role
+async function getRoleByName(name) {
+  const res = await query("SELECT id, name FROM roles WHERE name = $1", [name]);
+  return res.rows[0];
+}
+
+async function getRoleById(id) {
+  const res = await query("SELECT id, name FROM roles WHERE id = $1", [id]);
+  return res.rows[0];
+}
+
+module.exports = {
+  getRoleByName,
+  getRoleById,
+};
+```
+
+## lsp-backend/modules/auth/authController.js
+
+```js
+// lsp-backend/modules/auth/authController.js
 const bcrypt = require("bcryptjs");
-const { generateToken } = require("../utils/jwt");
-const userModel = require("../models/userModel");
+const { generateToken } = require("../../utils/jwt");
+const authModel = require("./authModel");
+const globalModel = require("../../models/globalModel"); // Impor Global Model
+const { getClient } = require("../../utils/db");
 
 async function register(request, reply) {
+  const client = await getClient();
   try {
-    const { username, password, email, role_name } = request.body;
+    const {
+      username,
+      password,
+      email,
+      full_name,
+      ktp_number,
+      phone_number,
+      address,
+    } = request.body;
 
-    if (!username || !password || !email || !role_name) {
-      return reply.status(400).send({ message: "All fields are required" });
+    const role_name = "Asesi";
+
+    if (!username || !password || !email || !full_name || !ktp_number) {
+      return reply.status(400).send({ message: "Required fields are missing" });
     }
 
-    // Cek apakah username sudah ada
-    const existingUser = await userModel.findUserByUsername(username);
+    await client.query("BEGIN");
+
+    // 1. Cek username
+    const existingUser = await authModel.findUserByUsername(username);
     if (existingUser) {
-      return reply.status(409).send({ message: "Username already taken" });
+      await client.query("ROLLBACK");
+      return reply
+        .status(409)
+        .send({ message: "Username (NPP) already taken" });
     }
 
-    // Dapatkan role_id berdasarkan role_name
-    const role = await userModel.getRoleByName(role_name);
+    // 2. Dapatkan role_id 'Asesi' dari GlobalModel
+    const role = await globalModel.getRoleByName(role_name);
     if (!role) {
-      return reply.status(400).send({ message: "Invalid role name" });
+      await client.query("ROLLBACK");
+      return reply.status(400).send({ message: "Role 'Asesi' not found" });
     }
     const role_id = role.id;
 
-    // Hash password
+    // 3. Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Buat user baru
-    const newUser = await userModel.createUser({
+    // 4. Buat user baru (Tabel users)
+    const newUser = await authModel.createUser(
+      client,
       username,
-      password: hashedPassword,
+      hashedPassword,
       email,
-      role_id,
+      role_id
+    );
+
+    // 5. Buat profil Asesi (Tabel asesi_profiles)
+    await authModel.createAsesiProfile(client, newUser.id, {
+      full_name,
+      phone_number,
+      address,
+      ktp_number,
     });
 
+    await client.query("COMMIT");
+
     reply.status(201).send({
-      message: "User registered successfully",
+      message: "Asesi registered successfully",
       user: {
         id: newUser.id,
         username: newUser.username,
@@ -146,8 +386,11 @@ async function register(request, reply) {
       },
     });
   } catch (error) {
-    console.error("Error during registration:", error);
+    await client.query("ROLLBACK");
+    console.error("Error during Asesi registration:", error);
     reply.status(500).send({ message: "Internal server error" });
+  } finally {
+    client.release();
   }
 }
 
@@ -158,22 +401,19 @@ async function login(request, reply) {
     if (!username || !password) {
       return reply
         .status(400)
-        .send({ message: "Username and password are required" });
+        .send({ message: "Username (NPP) and password are required" });
     }
 
-    // Cari user berdasarkan username
-    const user = await userModel.findUserByUsername(username);
+    const user = await authModel.findUserByUsername(username);
     if (!user) {
       return reply.status(401).send({ message: "Invalid credentials" });
     }
 
-    // Bandingkan password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return reply.status(401).send({ message: "Invalid credentials" });
     }
 
-    // Generate JWT
     const token = generateToken({
       id: user.id,
       username: user.username,
@@ -196,17 +436,114 @@ async function login(request, reply) {
   }
 }
 
+async function forgotPassword(request, reply) {
+  // Logika Forgot Password tidak berubah
+  try {
+    const { npp, ktp_number, email } = request.body;
+
+    if (!npp || !ktp_number || !email) {
+      return reply.status(400).send({ message: "All fields are required" });
+    }
+
+    const user = await authModel.findUserByUsername(npp);
+    if (!user) {
+      return reply.status(404).send({ message: "User not found" });
+    }
+
+    reply.send({
+      message:
+        "Jika data ditemukan, link reset password telah dikirimkan ke email Anda.",
+    });
+  } catch (error) {
+    console.error("Error during forgot password process:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
 module.exports = {
   register,
   login,
+  forgotPassword,
 };
 ```
 
-## lsp-backend/controllers/eukController.js
+## lsp-backend/modules/auth/authModel.js
 
 ```js
-// controllers/eukController.js
-const eukModel = require("../models/eukModel");
+// lsp-backend/modules/auth/authModel.js
+const { query } = require("../../utils/db");
+
+async function findUserByUsername(username) {
+  const res = await query(
+    "SELECT id, username, password, email, role_id FROM users WHERE username = $1",
+    [username]
+  );
+  return res.rows[0];
+}
+
+async function createUser(client, username, hashedPassword, email, role_id) {
+  const res = await client.query(
+    "INSERT INTO users (username, password, email, role_id) VALUES ($1, $2, $3, $4) RETURNING id, username, email, role_id",
+    [username, hashedPassword, email, role_id]
+  );
+  return res.rows[0];
+}
+
+async function createAsesiProfile(client, userId, profileData) {
+  const { full_name, phone_number, address, ktp_number } = profileData;
+
+  const res = await client.query(
+    `INSERT INTO asesi_profiles (
+        user_id, full_name, phone_number, address, ktp_number
+    ) VALUES ($1, $2, $3, $4, $5)
+    RETURNING *`,
+    [userId, full_name, phone_number, address, ktp_number]
+  );
+  return res.rows[0];
+}
+
+module.exports = {
+  findUserByUsername,
+  createUser,
+  createAsesiProfile,
+};
+```
+
+## lsp-backend/modules/auth/authRoutes.js
+
+```js
+// lsp-backend/modules/auth/authRoutes.js
+const authController = require("./authController");
+
+async function authRoutes(fastify, options) {
+  fastify.post("/register", authController.register);
+  fastify.post("/login", authController.login);
+  fastify.post("/forgot-password", authController.forgotPassword);
+}
+
+module.exports = authRoutes;
+```
+
+## lsp-backend/modules/euk/EventUjiKompetensiController.js
+
+```js
+// lsp-backend/modules/euk/EventUjiKompetensiController.js
+const eukModel = require("./EventUjiKompetensiModel");
+
+async function createEukHandler(request, reply) {
+  try {
+    // request.body sudah dalam format camelCase (namaKegiatan, tanggal, dll.)
+    const newEuk = await eukModel.createEuk(request.body);
+    reply
+      .status(201)
+      .send({ message: "EUK created successfully", data: newEuk });
+  } catch (error) {
+    console.error("Error creating EUK:", error);
+    reply
+      .status(500)
+      .send({ message: "Internal server error", error: error.message });
+  }
+}
 
 async function getAllEuksHandler(request, reply) {
   try {
@@ -236,18 +573,298 @@ async function getAllEuksHandler(request, reply) {
   }
 }
 
-// ... (createEukHandler, getEukByIdHandler, updateEukHandler, deleteEukHandler)
+async function getEukByIdHandler(request, reply) {
+  try {
+    const { id } = request.params;
+    const euk = await eukModel.getEukById(id);
+    if (!euk) {
+      return reply.status(404).send({ message: "EUK not found" });
+    }
+    reply.send({ message: "EUK retrieved successfully", data: euk });
+  } catch (error) {
+    console.error("Error getting EUK by ID:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+async function updateEukHandler(request, reply) {
+  try {
+    const { id } = request.params;
+    const updatedEuk = await eukModel.updateEuk(id, request.body);
+    if (!updatedEuk) {
+      return reply.status(404).send({ message: "EUK not found" });
+    }
+    reply.send({ message: "EUK updated successfully", data: updatedEuk });
+  } catch (error) {
+    console.error("Error updating EUK:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+async function deleteEukHandler(request, reply) {
+  try {
+    const { id } = request.params;
+    const deletedEuk = await eukModel.deleteEuk(id);
+    if (!deletedEuk) {
+      return reply.status(404).send({ message: "EUK not found" });
+    }
+    reply.send({ message: "EUK deleted successfully", id: deletedEuk.id });
+  } catch (error) {
+    console.error("Error deleting EUK:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
 
 module.exports = {
+  createEukHandler,
   getAllEuksHandler,
+  getEukByIdHandler,
+  updateEukHandler,
+  deleteEukHandler,
 };
 ```
 
-## lsp-backend/controllers/lspController.js
+## lsp-backend/modules/euk/EventUjiKompetensiModel.js
 
 ```js
-// controllers/lspController.js
-const lspModel = require("../models/lspModel");
+// lsp-backend/modules/euk/EventUjiKompetensiModel.js
+const { query } = require("../../utils/db");
+const { mapToCamelCase } = require("../../utils/dataMapper"); // Hanya butuh untuk output konversi
+
+// Custom mapping untuk input dari frontend/API (camelCase non-standar) ke DB (snake_case)
+const mapEukInputToDb = (input) => {
+  // Asumsi: input menggunakan camelCase dari frontend
+  const dbData = {
+    event_name: input.namaKegiatan,
+    start_date: input.tanggal,
+    end_date: input.tanggal, // Asumsi tanggal selesai sama dengan tanggal mulai jika tidak diberikan
+    registration_deadline: input.tanggal, // Asumsi deadline sama dengan tanggal mulai
+    location: input.tempat,
+    address: input.alamat, // Asumsi kolom 'address' ada di tabel events
+    max_participants: input.jumlahPeserta,
+    penanggung_jawab: input.penanggungJawab,
+    lsp_penyelenggara: input.lspPenyelenggara,
+    description: input.deskripsi,
+    status: input.status,
+    scheme_id: input.schemeId, // Diperlukan, asumsi dikirim
+  };
+
+  // Hapus key yang undefined
+  Object.keys(dbData).forEach(
+    (key) => dbData[key] === undefined && delete dbData[key]
+  );
+
+  return dbData;
+};
+
+// Custom mapping untuk output dari DB (snake_case) ke API (camelCase/non-standar)
+const mapEukOutputToApi = (dbObject) => {
+  if (!dbObject) return null;
+
+  // Gunakan mapToCamelCase untuk semua kolom standar
+  const camelCaseData = mapToCamelCase(dbObject);
+
+  // Sesuaikan kembali nama field yang non-standar
+  return {
+    id: camelCaseData.id,
+    namaKegiatan: camelCaseData.eventName,
+    tanggal: camelCaseData.startDate,
+    tempat: camelCaseData.location,
+    alamat: camelCaseData.address,
+    jumlahPeserta: camelCaseData.maxParticipants,
+    penanggungJawab: camelCaseData.penanggungJawab,
+    lspPenyelenggara: camelCaseData.lspPenyelenggara,
+    deskripsi: camelCaseData.description,
+    status: camelCaseData.status,
+    schemeId: camelCaseData.schemeId,
+    createdAt: camelCaseData.createdAt,
+    updatedAt: camelCaseData.updatedAt,
+  };
+};
+
+async function createEuk(eukData) {
+  const dbData = mapEukInputToDb(eukData);
+
+  const keys = Object.keys(dbData);
+  const values = Object.values(dbData);
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
+  const columns = keys.join(", ");
+
+  const res = await query(
+    `INSERT INTO events (${columns}) VALUES (${placeholders}) RETURNING *`,
+    values
+  );
+  return mapEukOutputToApi(res.rows[0]);
+}
+
+async function getAllEuks({ search, limit, offset }) {
+  let queryText = `
+    SELECT e.*, s.name AS scheme_name
+    FROM events e
+    LEFT JOIN certification_schemes s ON e.scheme_id = s.id
+  `;
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push(
+      "(LOWER(e.event_name) LIKE $1 OR LOWER(e.location) LIKE $1 OR LOWER(e.penanggung_jawab) LIKE $1)"
+    );
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  queryText += " ORDER BY e.start_date DESC";
+
+  if (limit) {
+    queryParams.push(limit);
+    queryText += ` LIMIT $${queryParams.length}`;
+  }
+  if (offset) {
+    queryParams.push(offset);
+    queryText += ` OFFSET $${queryParams.length}`;
+  }
+
+  const res = await query(queryText, queryParams);
+
+  // Map setiap baris hasil
+  return res.rows.map((row) => {
+    const apiOutput = mapEukOutputToApi(row);
+    // Tambahkan nama skema jika ada
+    apiOutput.schemeName = row.scheme_name;
+    return apiOutput;
+  });
+}
+
+async function getTotalEuks(search) {
+  let queryText = "SELECT COUNT(*) FROM events";
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push("(LOWER(event_name) LIKE $1 OR LOWER(location) LIKE $1)");
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  const res = await query(queryText, queryParams);
+  return parseInt(res.rows[0].count, 10);
+}
+
+// Tambahkan implementasi untuk GET by ID
+async function getEukById(id) {
+  const res = await query("SELECT * FROM events WHERE id = $1", [id]);
+  return mapEukOutputToApi(res.rows[0]);
+}
+
+// Tambahkan implementasi untuk UPDATE
+async function updateEuk(id, eukData) {
+  const dbData = mapEukInputToDb(eukData);
+
+  const updates = [];
+  const values = [];
+  let paramIndex = 1;
+
+  for (const key in dbData) {
+    if (dbData.hasOwnProperty(key)) {
+      updates.push(`${key} = $${paramIndex}`);
+      values.push(dbData[key]);
+      paramIndex++;
+    }
+  }
+
+  if (updates.length === 0) {
+    return null; // Tidak ada data untuk diupdate
+  }
+
+  values.push(id); // ID adalah parameter terakhir
+
+  const res = await query(
+    `UPDATE events SET ${updates.join(
+      ", "
+    )}, updated_at = CURRENT_TIMESTAMP WHERE id = $${paramIndex} RETURNING *`,
+    values
+  );
+
+  return mapEukOutputToApi(res.rows[0]);
+}
+
+// Tambahkan implementasi untuk DELETE
+async function deleteEuk(id) {
+  const res = await query("DELETE FROM events WHERE id = $1 RETURNING id", [
+    id,
+  ]);
+  return res.rows[0] ? { id: res.rows[0].id } : null;
+}
+
+module.exports = {
+  createEuk,
+  getAllEuks,
+  getTotalEuks,
+  getEukById,
+  updateEuk,
+  deleteEuk,
+};
+```
+
+## lsp-backend/modules/euk/EventUjiKompetensiRoutes.js
+
+```js
+// lsp-backend/modules/euk/EventUjiKompetensiRoutes.js
+const eukController = require("./EventUjiKompetensiController");
+const authenticate = require("../../middlewares/authMiddleware");
+const authorize = require("../../middlewares/authorizeMiddleware");
+
+async function eukRoutes(fastify, options) {
+  const preHandlerAdmin = [authenticate, authorize(["Admin"])];
+  const preHandlerAuth = [authenticate];
+
+  // GET All EUK (Auth required)
+  fastify.get(
+    "/",
+    { preHandler: preHandlerAuth },
+    eukController.getAllEuksHandler
+  );
+
+  // GET EUK by ID (Auth required)
+  fastify.get(
+    "/:id",
+    { preHandler: preHandlerAuth },
+    eukController.getEukByIdHandler
+  );
+
+  // CRUD (Admin only)
+  fastify.post(
+    "/",
+    { preHandler: preHandlerAdmin },
+    eukController.createEukHandler
+  );
+  fastify.put(
+    "/:id",
+    { preHandler: preHandlerAdmin },
+    eukController.updateEukHandler
+  );
+  fastify.delete(
+    "/:id",
+    { preHandler: preHandlerAdmin },
+    eukController.deleteEukHandler
+  );
+}
+
+module.exports = eukRoutes;
+```
+
+## lsp-backend/modules/lsp/LembagaSertifikasiProfesiController.js
+
+```js
+// lsp-backend/modules/lsp/LembagaSertifikasiProfesiController.js
+const lspModel = require("./LembagaSertifikasiProfesiModel");
 
 async function createLspHandler(request, reply) {
   try {
@@ -350,11 +967,211 @@ module.exports = {
 };
 ```
 
-## lsp-backend/controllers/schemeController.js
+## lsp-backend/modules/lsp/LembagaSertifikasiProfesiModel.js
 
 ```js
-// controllers/schemeController.js
-const schemeModel = require("../models/schemeModel");
+// lsp-backend/modules/lsp/LembagaSertifikasiProfesiModel.js
+const { query } = require("../../utils/db");
+const { mapToSnakeCase, mapToCamelCase } = require("../../utils/dataMapper"); // Import utilitas
+
+async function createLsp(lspData) {
+  // 1. Konversi data dari camelCase ke snake_case
+  const snakeCaseData = mapToSnakeCase(lspData);
+
+  // Filter keys yang valid (sesuai skema lsp_institutions)
+  // Karena kita tidak memiliki skema DB di sini, kita asumsikan semua key yang dikirim adalah valid.
+  const keys = Object.keys(snakeCaseData);
+  const values = Object.values(snakeCaseData);
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
+  const columns = keys.join(", ");
+
+  const res = await query(
+    `INSERT INTO lsp_institutions (${columns}) VALUES (${placeholders}) RETURNING *`,
+    values
+  );
+
+  // 2. Konversi hasil kembali ke camelCase sebelum dikembalikan
+  return mapToCamelCase(res.rows[0]);
+}
+
+async function getAllLsps({ search, limit, offset }) {
+  let queryText = "SELECT * FROM lsp_institutions";
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push("(LOWER(nama_lsp) LIKE $1 OR LOWER(direktur_lsp) LIKE $1)");
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  queryText += " ORDER BY created_at DESC";
+
+  if (limit) {
+    queryParams.push(limit);
+    queryText += ` LIMIT $${queryParams.length}`;
+  }
+  if (offset) {
+    queryParams.push(offset);
+    queryText += ` OFFSET $${queryParams.length}`;
+  }
+
+  const res = await query(queryText, queryParams);
+  // 3. Konversi hasil kembali ke camelCase
+  return mapToCamelCase(res.rows);
+}
+
+async function getLspById(id) {
+  const res = await query("SELECT * FROM lsp_institutions WHERE id = $1", [id]);
+  // 4. Konversi hasil kembali ke camelCase
+  return mapToCamelCase(res.rows[0]);
+}
+
+async function updateLsp(id, lspData) {
+  // 1. Konversi data dari camelCase ke snake_case
+  const snakeCaseData = mapToSnakeCase(lspData);
+
+  const updates = [];
+  const values = [];
+  let paramIndex = 1;
+
+  for (const key in snakeCaseData) {
+    if (snakeCaseData.hasOwnProperty(key)) {
+      updates.push(`${key} = $${paramIndex}`);
+      values.push(snakeCaseData[key]);
+      paramIndex++;
+    }
+  }
+
+  if (updates.length === 0) {
+    return null; // Tidak ada data untuk diupdate
+  }
+
+  // Tambahkan updated_at
+  updates.push(`updated_at = CURRENT_TIMESTAMP`);
+
+  values.push(id); // ID adalah parameter terakhir
+
+  const res = await query(
+    `UPDATE lsp_institutions SET ${updates.join(
+      ", "
+    )} WHERE id = $${paramIndex} RETURNING *`,
+    values
+  );
+
+  // 2. Konversi hasil kembali ke camelCase
+  return mapToCamelCase(res.rows[0]);
+}
+
+async function deleteLsp(id) {
+  const res = await query(
+    "DELETE FROM lsp_institutions WHERE id = $1 RETURNING id",
+    [id]
+  );
+  // 3. Konversi hasil kembali ke camelCase (hanya ID yang terpengaruh)
+  return mapToCamelCase(res.rows[0]);
+}
+
+async function getTotalLsps(search) {
+  let queryText = "SELECT COUNT(*) FROM lsp_institutions";
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    // Note: Search tetap menggunakan snake_case karena berinteraksi langsung dengan DB
+    conditions.push("(LOWER(nama_lsp) LIKE $1 OR LOWER(direktur_lsp) LIKE $1)");
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  const res = await query(queryText, queryParams);
+  return parseInt(res.rows[0].count, 10);
+}
+
+module.exports = {
+  createLsp,
+  getAllLsps,
+  getLspById,
+  updateLsp,
+  deleteLsp,
+  getTotalLsps,
+};
+```
+
+## lsp-backend/modules/lsp/LembagaSertifikasiProfesiRoutes.js
+
+```js
+// lsp-backend/modules/lsp/LembagaSertifikasiProfesiRoutes.js
+const lspController = require("./LembagaSertifikasiProfesiController");
+const authenticate = require("../../middlewares/authMiddleware");
+const authorize = require("../../middlewares/authorizeMiddleware");
+
+async function lspRoutes(fastify, options) {
+  // GET /api/lsps
+  fastify.get(
+    "/",
+    {
+      preHandler: [authenticate /*, authorize(['Admin', 'Asesi', 'Asesor'])*/],
+    },
+    lspController.getAllLspsHandler
+  );
+  // GET /api/lsps/:id
+  fastify.get(
+    "/:id",
+    {
+      preHandler: [authenticate /*, authorize(['Admin', 'Asesi', 'Asesor'])*/],
+    },
+    lspController.getLspByIdHandler
+  );
+
+  // POST /api/lsps (Hanya Admin)
+  fastify.post(
+    "/",
+    { preHandler: [authenticate, authorize(["Admin"])] },
+    lspController.createLspHandler
+  );
+  // PUT /api/lsps/:id (Hanya Admin)
+  fastify.put(
+    "/:id",
+    { preHandler: [authenticate, authorize(["Admin"])] },
+    lspController.updateLspHandler
+  );
+  // DELETE /api/lsps/:id (Hanya Admin)
+  fastify.delete(
+    "/:id",
+    { preHandler: [authenticate, authorize(["Admin"])] },
+    lspController.deleteLspHandler
+  );
+}
+
+module.exports = lspRoutes;
+```
+
+## lsp-backend/modules/scheme/SkemaSertifikasiController.js
+
+```js
+// lsp-backend/modules/scheme/SkemaSertifikasiController.js
+const schemeModel = require("./SkemaSertifikasiModel");
+
+async function createSchemeHandler(request, reply) {
+  try {
+    const newScheme = await schemeModel.createScheme(request.body);
+    reply
+      .status(201)
+      .send({ message: "Skema created successfully", data: newScheme });
+  } catch (error) {
+    console.error("Error creating Skema:", error);
+    reply
+      .status(500)
+      .send({ message: "Internal server error", error: error.message });
+  }
+}
 
 async function getAllSchemesHandler(request, reply) {
   try {
@@ -384,18 +1201,291 @@ async function getAllSchemesHandler(request, reply) {
   }
 }
 
-// ... (createSchemeHandler, getSchemeByIdHandler, updateSchemeHandler, deleteSchemeHandler)
+async function getSchemeByIdHandler(request, reply) {
+  try {
+    const { id } = request.params;
+    const scheme = await schemeModel.getSchemeById(id);
+    if (!scheme) {
+      return reply.status(404).send({ message: "Skema not found" });
+    }
+    reply.send({ message: "Skema retrieved successfully", data: scheme });
+  } catch (error) {
+    console.error("Error getting Skema by ID:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+async function updateSchemeHandler(request, reply) {
+  try {
+    const { id } = request.params;
+    const updatedScheme = await schemeModel.updateScheme(id, request.body);
+    if (!updatedScheme) {
+      return reply.status(404).send({ message: "Skema not found" });
+    }
+    reply.send({ message: "Skema updated successfully", data: updatedScheme });
+  } catch (error) {
+    console.error("Error updating Skema:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+async function deleteSchemeHandler(request, reply) {
+  try {
+    const { id } = request.params;
+    const deletedScheme = await schemeModel.deleteScheme(id);
+    if (!deletedScheme) {
+      return reply.status(404).send({ message: "Skema not found" });
+    }
+    reply.send({ message: "Skema deleted successfully", id: deletedScheme.id });
+  } catch (error) {
+    console.error("Error deleting Skema:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
 
 module.exports = {
+  createSchemeHandler,
   getAllSchemesHandler,
+  getSchemeByIdHandler,
+  updateSchemeHandler,
+  deleteSchemeHandler,
 };
 ```
 
-## lsp-backend/controllers/tukController.js
+## lsp-backend/modules/scheme/SkemaSertifikasiModel.js
 
 ```js
-// controllers/tukController.js
-const tukModel = require("../models/tukModel");
+// lsp-backend/modules/scheme/SkemaSertifikasiModel.js
+const { query } = require("../../utils/db");
+const { mapToCamelCase } = require("../../utils/dataMapper");
+
+// Custom mapping untuk input dari frontend/API ke DB
+const mapSchemeInputToDb = (input) => {
+  const dbData = {
+    code: input.kodeSkema,
+    name: input.namaSkema,
+    description: input.description, // Asumsi description opsional
+    skkni: input.skkni,
+    keterangan_bukti: input.keteranganBukti,
+    is_active: input.isActive,
+  };
+
+  Object.keys(dbData).forEach(
+    (key) => dbData[key] === undefined && delete dbData[key]
+  );
+  return dbData;
+};
+
+// Custom mapping untuk output dari DB ke API
+const mapSchemeOutputToApi = (dbObject) => {
+  if (!dbObject) return null;
+
+  // Gunakan mapToCamelCase untuk konversi dasar
+  const camelCaseData = mapToCamelCase(dbObject);
+
+  // Sesuaikan kembali nama field API
+  return {
+    id: camelCaseData.id,
+    kodeSkema: camelCaseData.code,
+    namaSkema: camelCaseData.name,
+    skkni: camelCaseData.skkni,
+    keteranganBukti: camelCaseData.keteranganBukti,
+    isActive: camelCaseData.isActive,
+    // Properti yang didapatkan dari join atau agregasi
+    persyaratanCount: camelCaseData.persyaratanCount || 0,
+  };
+};
+
+async function createScheme(schemeData) {
+  const dbData = mapSchemeInputToDb(schemeData);
+
+  const keys = Object.keys(dbData);
+  const values = Object.values(dbData);
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
+  const columns = keys.join(", ");
+
+  const res = await query(
+    `INSERT INTO certification_schemes (${columns}) VALUES (${placeholders}) RETURNING *`,
+    values
+  );
+  return mapSchemeOutputToApi(res.rows[0]);
+}
+
+async function getAllSchemes({ search, limit, offset }) {
+  // Query ini disederhanakan, di dunia nyata mungkin perlu JOIN untuk mendapatkan persyaratanCount
+  let queryText = "SELECT * FROM certification_schemes";
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push(
+      "(LOWER(name) LIKE $1 OR LOWER(code) LIKE $1 OR LOWER(skkni) LIKE $1)"
+    );
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  queryText += " ORDER BY created_at DESC";
+
+  if (limit) {
+    queryParams.push(limit);
+    queryText += ` LIMIT $${queryParams.length}`;
+  }
+  if (offset) {
+    queryParams.push(offset);
+    queryText += ` OFFSET $${queryParams.length}`;
+  }
+
+  const res = await query(queryText, queryParams);
+  return res.rows.map(mapSchemeOutputToApi);
+}
+
+async function getTotalSchemes(search) {
+  let queryText = "SELECT COUNT(*) FROM certification_schemes";
+  let queryParams = [];
+  let conditions = [];
+
+  if (search) {
+    conditions.push("(LOWER(name) LIKE $1 OR LOWER(code) LIKE $1)");
+    queryParams.push(`%${search.toLowerCase()}%`);
+  }
+
+  if (conditions.length > 0) {
+    queryText += " WHERE " + conditions.join(" AND ");
+  }
+
+  const res = await query(queryText, queryParams);
+  return parseInt(res.rows[0].count, 10);
+}
+
+async function getSchemeById(id) {
+  const res = await query("SELECT * FROM certification_schemes WHERE id = $1", [
+    id,
+  ]);
+  return mapSchemeOutputToApi(res.rows[0]);
+}
+
+async function updateScheme(id, schemeData) {
+  const dbData = mapSchemeInputToDb(schemeData);
+
+  const updates = [];
+  const values = [];
+  let paramIndex = 1;
+
+  for (const key in dbData) {
+    if (dbData.hasOwnProperty(key)) {
+      updates.push(`${key} = $${paramIndex}`);
+      values.push(dbData[key]);
+      paramIndex++;
+    }
+  }
+
+  if (updates.length === 0) {
+    return null;
+  }
+
+  values.push(id);
+
+  const res = await query(
+    `UPDATE certification_schemes SET ${updates.join(
+      ", "
+    )}, updated_at = CURRENT_TIMESTAMP WHERE id = $${paramIndex} RETURNING *`,
+    values
+  );
+
+  return mapSchemeOutputToApi(res.rows[0]);
+}
+
+async function deleteScheme(id) {
+  const res = await query(
+    "DELETE FROM certification_schemes WHERE id = $1 RETURNING id",
+    [id]
+  );
+  return res.rows[0] ? { id: res.rows[0].id } : null;
+}
+
+module.exports = {
+  createScheme,
+  getAllSchemes,
+  getTotalSchemes,
+  getSchemeById,
+  updateScheme,
+  deleteScheme,
+};
+```
+
+## lsp-backend/modules/scheme/SkemaSertifikasiRoutes.js
+
+```js
+// lsp-backend/modules/scheme/SkemaSertifikasiRoutes.js
+const schemeController = require("./SkemaSertifikasiController");
+const authenticate = require("../../middlewares/authMiddleware");
+const authorize = require("../../middlewares/authorizeMiddleware");
+
+async function schemeRoutes(fastify, options) {
+  const preHandlerAdmin = [authenticate, authorize(["Admin"])];
+  const preHandlerAuth = [authenticate];
+
+  // GET All Schemes (Auth required)
+  fastify.get(
+    "/",
+    { preHandler: preHandlerAuth },
+    schemeController.getAllSchemesHandler
+  );
+
+  // GET Scheme by ID (Auth required)
+  fastify.get(
+    "/:id",
+    { preHandler: preHandlerAuth },
+    schemeController.getSchemeByIdHandler
+  );
+
+  // CRUD (Admin only)
+  fastify.post(
+    "/",
+    { preHandler: preHandlerAdmin },
+    schemeController.createSchemeHandler
+  );
+  fastify.put(
+    "/:id",
+    { preHandler: preHandlerAdmin },
+    schemeController.updateSchemeHandler
+  );
+  fastify.delete(
+    "/:id",
+    { preHandler: preHandlerAdmin },
+    schemeController.deleteSchemeHandler
+  );
+
+  // Rute untuk persyaratan skema (nested resource)
+  // fastify.get("/:schemeId/requirements", { preHandler: preHandlerAuth }, schemeController.getRequirementsHandler);
+}
+
+module.exports = schemeRoutes;
+```
+
+## lsp-backend/modules/tuk/TempatUjiKompetensiController.js
+
+```js
+// lsp-backend/modules/tuk/TempatUjiKompetensiController.js
+const tukModel = require("./TempatUjiKompetensiModel");
+
+async function createTukHandler(request, reply) {
+  try {
+    const newTuk = await tukModel.createTuk(request.body);
+    reply
+      .status(201)
+      .send({ message: "TUK created successfully", data: newTuk });
+  } catch (error) {
+    console.error("Error creating TUK:", error);
+    reply
+      .status(500)
+      .send({ message: "Internal server error", error: error.message });
+  }
+}
 
 async function getAllTuksHandler(request, reply) {
   try {
@@ -425,579 +1515,121 @@ async function getAllTuksHandler(request, reply) {
   }
 }
 
-// ... (createTukHandler, getTukByIdHandler, updateTukHandler, deleteTukHandler)
+async function getTukByIdHandler(request, reply) {
+  try {
+    const { id } = request.params;
+    const tuk = await tukModel.getTukById(id);
+    if (!tuk) {
+      return reply.status(404).send({ message: "TUK not found" });
+    }
+    reply.send({ message: "TUK retrieved successfully", data: tuk });
+  } catch (error) {
+    console.error("Error getting TUK by ID:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+async function updateTukHandler(request, reply) {
+  try {
+    const { id } = request.params;
+    const updatedTuk = await tukModel.updateTuk(id, request.body);
+    if (!updatedTuk) {
+      return reply.status(404).send({ message: "TUK not found" });
+    }
+    reply.send({ message: "TUK updated successfully", data: updatedTuk });
+  } catch (error) {
+    console.error("Error updating TUK:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+async function deleteTukHandler(request, reply) {
+  try {
+    const { id } = request.params;
+    const deletedTuk = await tukModel.deleteTuk(id);
+    if (!deletedTuk) {
+      return reply.status(404).send({ message: "TUK not found" });
+    }
+    reply.send({ message: "TUK deleted successfully", id: deletedTuk.id });
+  } catch (error) {
+    console.error("Error deleting TUK:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
 
 module.exports = {
+  createTukHandler,
   getAllTuksHandler,
+  getTukByIdHandler,
+  updateTukHandler,
+  deleteTukHandler,
 };
 ```
 
-## lsp-backend/controllers/userController.js
+## lsp-backend/modules/tuk/TempatUjiKompetensiModel.js
 
 ```js
-// controllers/userController.js
-const userModel = require("../models/userModel");
-const bcrypt = require("bcryptjs"); // Perlu untuk mengganti password
+// lsp-backend/modules/tuk/TempatUjiKompetensiModel.js
+const { query } = require("../../utils/db");
+const { mapToCamelCase } = require("../../utils/dataMapper");
 
-async function getMyProfile(request, reply) {
-  try {
-    // Data user berasal dari token yang didecode oleh middleware autentikasi
-    const userId = request.user.id;
-    // Kita bisa ambil data user lengkap dari model
-    const user = await userModel.findUserById(userId);
-
-    if (!user) {
-      return reply.status(404).send({ message: "User not found" });
-    }
-
-    reply.send({ message: "User profile retrieved successfully", user });
-  } catch (error) {
-    console.error("Error getting user profile:", error);
-    reply.status(500).send({ message: "Internal server error" });
-  }
-}
-
-async function changePassword(request, reply) {
-  try {
-    const userId = request.user.id;
-    const { currentPassword, newPassword } = request.body;
-
-    if (!currentPassword || !newPassword) {
-      return reply
-        .status(400)
-        .send({ message: "Current password and new password are required" });
-    }
-
-    // Ambil user dari database untuk memverifikasi password lama
-    // Gunakan findUserById tapi ambil juga password-nya, atau buat fungsi khusus
-    // Untuk saat ini, kita bisa modifikasi findUserById atau buat fungsi baru di model
-    const userWithPassword = await userModel.findUserByUsername(
-      request.user.username
-    ); // Ambil user lengkap termasuk password
-    if (!userWithPassword || userWithPassword.id !== userId) {
-      // Pastikan user adalah user yang login
-      return reply.status(404).send({ message: "User not found or mismatch" });
-    }
-
-    // Verify current password
-    const isMatch = await bcrypt.compare(
-      currentPassword,
-      userWithPassword.password
-    );
-    if (!isMatch) {
-      return reply.status(401).send({ message: "Incorrect current password" });
-    }
-
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    // Update password in the database
-    await userModel.updateUserPassword(userId, hashedPassword);
-
-    reply.send({ message: "Password updated successfully" });
-  } catch (error) {
-    console.error("Error changing password:", error);
-    reply.status(500).send({ message: "Internal server error" });
-  }
-}
-
-// Hanya ekspor fungsi-fungsi controller
-module.exports = {
-  getMyProfile,
-  changePassword,
-};
-```
-
-## lsp-backend/middlewares/authMiddleware.js
-
-```js
-// middlewares/authMiddleware.js
-const { verifyToken } = require("../utils/jwt");
-
-const authenticate = async (request, reply) => {
-  try {
-    const authHeader = request.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return reply
-        .status(401)
-        .send({ message: "Authorization token required" });
-    }
-
-    const token = authHeader.split(" ")[1];
-    const decoded = verifyToken(token);
-
-    if (!decoded) {
-      return reply.status(401).send({ message: "Invalid or expired token" });
-    }
-
-    // Simpan data user yang terautentikasi ke objek request
-    // Fastify tidak secara otomatis memiliki `request.user`, jadi kita bisa menambahkannya
-    request.user = decoded;
-  } catch (error) {
-    console.error("Authentication error:", error);
-    return reply.status(500).send({ message: "Internal server error" });
-  }
-};
-
-module.exports = authenticate;
-```
-
-## lsp-backend/middlewares/authorizeMiddleware.js
-
-```js
-// middlewares/authorizeMiddleware.js
-const userModel = require("../models/userModel"); // Perlu untuk mendapatkan nama peran
-
-const authorize =
-  (roles = []) =>
-  async (request, reply) => {
-    if (typeof roles === "string") {
-      roles = [roles];
-    }
-
-    if (!request.user || !request.user.role_id) {
-      return reply
-        .status(403)
-        .send({ message: "Access denied. No role information." });
-    }
-
-    try {
-      // Dapatkan nama peran dari ID peran
-      const roleQueryResult = await userModel.getRoleById(request.user.role_id);
-      if (!roleQueryResult || !roleQueryResult.name) {
-        return reply
-          .status(403)
-          .send({ message: "Access denied. Invalid role." });
-      }
-      const userRoleName = roleQueryResult.name;
-
-      // Periksa apakah peran pengguna termasuk dalam peran yang diizinkan
-      if (roles.length && !roles.includes(userRoleName)) {
-        return reply.status(403).send({
-          message: "Access denied. You do not have the required role.",
-        });
-      }
-    } catch (error) {
-      console.error("Authorization error:", error);
-      return reply
-        .status(500)
-        .send({ message: "Internal server error during authorization" });
-    }
+// Custom mapping untuk input dari frontend/API ke DB
+const mapTukInputToDb = (input) => {
+  const dbData = {
+    kode_tuk: input.kodeTuk,
+    nama_tempat: input.namaTempat,
+    jenis_tuk: input.jenisTuk,
+    lsp_induk_id: input.lspIndukId, // Asumsi ID LSP, jika tidak ada, perlu ditambahkan lookup
+    penanggung_jawab: input.penanggungJawab,
+    lisensi_info: input.lisensi,
+    skkni_info: input.skkni,
+    jadwal_info: input.jadwal,
   };
 
-module.exports = authorize;
-```
-
-## lsp-backend/models/eukModel.js
-
-```js
-// models/eukModel.js
-const { query } = require("../utils/db");
-
-async function createEuk(eukData) {
-  const {
-    scheme_id, // Skema yang diuji dalam event
-    event_name,
-    start_date,
-    end_date,
-    registration_deadline,
-    location,
-    description,
-    max_participants,
-    lsp_penyelenggara, // Tambahan untuk simulasi data frontend
-    penanggung_jawab, // Tambahan untuk simulasi data frontend
-  } = eukData;
-
-  const res = await query(
-    `INSERT INTO events (
-        scheme_id, event_name, start_date, end_date, registration_deadline, location, description, max_participants, lsp_penyelenggara, penanggung_jawab
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-    RETURNING *`,
-    [
-      scheme_id,
-      event_name,
-      start_date,
-      end_date,
-      registration_deadline,
-      location,
-      description,
-      max_participants,
-      lsp_penyelenggara,
-      penanggung_jawab,
-    ]
+  Object.keys(dbData).forEach(
+    (key) => dbData[key] === undefined && delete dbData[key]
   );
-  return res.rows[0];
-}
-
-async function getAllEuks({ search, limit, offset }) {
-  let queryText = "SELECT * FROM events";
-  let queryParams = [];
-  let conditions = [];
-
-  if (search) {
-    conditions.push(
-      "(LOWER(event_name) LIKE $1 OR LOWER(location) LIKE $1 OR LOWER(penanggung_jawab) LIKE $1)"
-    );
-    queryParams.push(`%${search.toLowerCase()}%`);
-  }
-
-  if (conditions.length > 0) {
-    queryText += " WHERE " + conditions.join(" AND ");
-  }
-
-  queryText += " ORDER BY start_date DESC";
-
-  if (limit) {
-    queryParams.push(limit);
-    queryText += ` LIMIT $${queryParams.length}`;
-  }
-  if (offset) {
-    queryParams.push(offset);
-    queryText += ` OFFSET $${queryParams.length}`;
-  }
-
-  const res = await query(queryText, queryParams);
-  return res.rows;
-}
-
-// ... (getById, update, delete, getTotal methods, similar to lspModel)
-async function getTotalEuks(search) {
-  let queryText = "SELECT COUNT(*) FROM events";
-  let queryParams = [];
-  let conditions = [];
-
-  if (search) {
-    conditions.push("(LOWER(event_name) LIKE $1 OR LOWER(location) LIKE $1)");
-    queryParams.push(`%${search.toLowerCase()}%`);
-  }
-
-  if (conditions.length > 0) {
-    queryText += " WHERE " + conditions.join(" AND ");
-  }
-
-  const res = await query(queryText, queryParams);
-  return parseInt(res.rows[0].count, 10);
-}
-
-module.exports = {
-  createEuk,
-  getAllEuks,
-  getTotalEuks,
+  return dbData;
 };
-```
 
-## lsp-backend/models/lspModel.js
+// Custom mapping untuk output dari DB ke API
+const mapTukOutputToApi = (dbObject) => {
+  if (!dbObject) return null;
 
-```js
-// models/lspModel.js
-const { query } = require("../utils/db");
+  // Gunakan mapToCamelCase untuk semua kolom standar
+  const camelCaseData = mapToCamelCase(dbObject);
 
-async function createLsp(lspData) {
-  const {
-    kode_lsp,
-    nama_lsp,
-    jenis_lsp,
-    direktur_lsp,
-    manajer_lsp,
-    institusi_induk,
-    skkni,
-    telepon,
-    faximile,
-    whatsapp,
-    alamat_email,
-    website,
-    alamat,
-    desa,
-    kecamatan,
-    kota,
-    provinsi,
-    kode_pos,
-    nomor_lisensi,
-    masa_berlaku,
-  } = lspData;
+  // Sesuaikan kembali nama field yang non-standar/custom
+  return {
+    id: camelCaseData.id,
+    kodeTuk: camelCaseData.kodeTuk,
+    namaTempat: camelCaseData.namaTempat,
+    jenisTuk: camelCaseData.jenisTuk,
+    penanggungJawab: camelCaseData.penanggungJawab,
+    lisensi: camelCaseData.lisensiInfo, // Mapping lisensi_info -> lisensi
+    skkni: camelCaseData.skkniInfo, // Mapping skkni_info -> skkni
+    jadwal: camelCaseData.jadwalInfo, // Mapping jadwal_info -> jadwal
+    lspIndukId: camelCaseData.lspIndukId,
 
-  const res = await query(
-    `INSERT INTO lsp_institutions (
-            kode_lsp, nama_lsp, jenis_lsp, direktur_lsp, manajer_lsp, institusi_induk, skkni,
-            telepon, faximile, whatsapp, alamat_email, website,
-            alamat, desa, kecamatan, kota, provinsi, kode_pos,
-            nomor_lisensi, masa_berlaku
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-        RETURNING *`,
-    [
-      kode_lsp,
-      nama_lsp,
-      jenis_lsp,
-      direktur_lsp,
-      manajer_lsp,
-      institusi_induk,
-      skkni,
-      telepon,
-      faximile,
-      whatsapp,
-      alamat_email,
-      website,
-      alamat,
-      desa,
-      kecamatan,
-      kota,
-      provinsi,
-      kode_pos,
-      nomor_lisensi,
-      masa_berlaku,
-    ]
-  );
-  return res.rows[0];
-}
-
-async function getAllLsps({ search, limit, offset }) {
-  let queryText = "SELECT * FROM lsp_institutions";
-  let queryParams = [];
-  let conditions = [];
-
-  if (search) {
-    conditions.push("(LOWER(nama_lsp) LIKE $1 OR LOWER(direktur_lsp) LIKE $1)");
-    queryParams.push(`%${search.toLowerCase()}%`);
-  }
-
-  if (conditions.length > 0) {
-    queryText += " WHERE " + conditions.join(" AND ");
-  }
-
-  queryText += " ORDER BY created_at DESC";
-
-  if (limit) {
-    queryParams.push(limit);
-    queryText += ` LIMIT $${queryParams.length}`;
-  }
-  if (offset) {
-    queryParams.push(offset);
-    queryText += ` OFFSET $${queryParams.length}`;
-  }
-
-  const res = await query(queryText, queryParams);
-  return res.rows;
-}
-
-async function getLspById(id) {
-  const res = await query("SELECT * FROM lsp_institutions WHERE id = $1", [id]);
-  return res.rows[0];
-}
-
-async function updateLsp(id, lspData) {
-  const {
-    kode_lsp,
-    nama_lsp,
-    jenis_lsp,
-    direktur_lsp,
-    manajer_lsp,
-    institusi_induk,
-    skkni,
-    telepon,
-    faximile,
-    whatsapp,
-    alamat_email,
-    website,
-    alamat,
-    desa,
-    kecamatan,
-    kota,
-    provinsi,
-    kode_pos,
-    nomor_lisensi,
-    masa_berlaku,
-  } = lspData;
-
-  const res = await query(
-    `UPDATE lsp_institutions SET
-            kode_lsp = $1, nama_lsp = $2, jenis_lsp = $3, direktur_lsp = $4, manajer_lsp = $5, institusi_induk = $6, skkni = $7,
-            telepon = $8, faximile = $9, whatsapp = $10, alamat_email = $11, website = $12,
-            alamat = $13, desa = $14, kecamatan = $15, kota = $16, provinsi = $17, kode_pos = $18,
-            nomor_lisensi = $19, masa_berlaku = $20, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $21
-        RETURNING *`,
-    [
-      kode_lsp,
-      nama_lsp,
-      jenis_lsp,
-      direktur_lsp,
-      manajer_lsp,
-      institusi_induk,
-      skkni,
-      telepon,
-      faximile,
-      whatsapp,
-      alamat_email,
-      website,
-      alamat,
-      desa,
-      kecamatan,
-      kota,
-      provinsi,
-      kode_pos,
-      nomor_lisensi,
-      masa_berlaku,
-      id,
-    ]
-  );
-  return res.rows[0];
-}
-
-async function deleteLsp(id) {
-  const res = await query(
-    "DELETE FROM lsp_institutions WHERE id = $1 RETURNING id",
-    [id]
-  );
-  return res.rows[0];
-}
-
-// Tambahkan fungsi untuk menghitung total data LSP (untuk paginasi frontend)
-async function getTotalLsps(search) {
-  let queryText = "SELECT COUNT(*) FROM lsp_institutions";
-  let queryParams = [];
-  let conditions = [];
-
-  if (search) {
-    conditions.push("(LOWER(nama_lsp) LIKE $1 OR LOWER(direktur_lsp) LIKE $1)");
-    queryParams.push(`%${search.toLowerCase()}%`);
-  }
-
-  if (conditions.length > 0) {
-    queryText += " WHERE " + conditions.join(" AND ");
-  }
-
-  const res = await query(queryText, queryParams);
-  return parseInt(res.rows[0].count, 10);
-}
-
-module.exports = {
-  createLsp,
-  getAllLsps,
-  getLspById,
-  updateLsp,
-  deleteLsp,
-  getTotalLsps,
+    // Data yang diambil dari join (jika ada)
+    lspInduk: camelCaseData.namaLsp,
+    lspJenis: camelCaseData.jenisLsp,
+  };
 };
-```
-
-## lsp-backend/models/schemeModel.js
-
-```js
-// models/schemeModel.js
-const { query } = require("../utils/db");
-
-async function createScheme(schemeData) {
-  const {
-    name,
-    code,
-    description,
-    skkni, // Asumsi field SKKNI ditambahkan di tabel schemes
-    keterangan_bukti, // Tambahan untuk simulasi data frontend
-  } = schemeData;
-
-  const res = await query(
-    `INSERT INTO certification_schemes (
-        name, code, description, skkni, keterangan_bukti
-    ) VALUES ($1, $2, $3, $4, $5)
-    RETURNING *`,
-    [name, code, description, skkni, keterangan_bukti]
-  );
-  return res.rows[0];
-}
-
-async function getAllSchemes({ search, limit, offset }) {
-  let queryText = "SELECT * FROM certification_schemes";
-  let queryParams = [];
-  let conditions = [];
-
-  if (search) {
-    conditions.push(
-      "(LOWER(name) LIKE $1 OR LOWER(code) LIKE $1 OR LOWER(skkni) LIKE $1)"
-    );
-    queryParams.push(`%${search.toLowerCase()}%`);
-  }
-
-  if (conditions.length > 0) {
-    queryText += " WHERE " + conditions.join(" AND ");
-  }
-
-  queryText += " ORDER BY created_at DESC";
-
-  if (limit) {
-    queryParams.push(limit);
-    queryText += ` LIMIT $${queryParams.length}`;
-  }
-  if (offset) {
-    queryParams.push(offset);
-    queryText += ` OFFSET $${queryParams.length}`;
-  }
-
-  const res = await query(queryText, queryParams);
-  return res.rows;
-}
-
-// ... (getById, update, delete, getTotal methods, similar to lspModel)
-async function getTotalSchemes(search) {
-  let queryText = "SELECT COUNT(*) FROM certification_schemes";
-  let queryParams = [];
-  let conditions = [];
-
-  if (search) {
-    conditions.push("(LOWER(name) LIKE $1 OR LOWER(code) LIKE $1)");
-    queryParams.push(`%${search.toLowerCase()}%`);
-  }
-
-  if (conditions.length > 0) {
-    queryText += " WHERE " + conditions.join(" AND ");
-  }
-
-  const res = await query(queryText, queryParams);
-  return parseInt(res.rows[0].count, 10);
-}
-
-module.exports = {
-  createScheme,
-  getAllSchemes,
-  getTotalSchemes,
-};
-```
-
-## lsp-backend/models/tukModel.js
-
-```js
-// models/tukModel.js
-const { query } = require("../utils/db");
 
 async function createTuk(tukData) {
-  const {
-    kode_tuk,
-    nama_tempat,
-    jenis_tuk,
-    lsp_induk_id, // Asumsi ini referensi ke lsp_institutions(id)
-    penanggung_jawab,
-    lisensi_info,
-    skkni_info,
-    jadwal_info,
-  } = tukData;
+  const dbData = mapTukInputToDb(tukData);
+
+  const keys = Object.keys(dbData);
+  const values = Object.values(dbData);
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
+  const columns = keys.join(", ");
 
   const res = await query(
-    `INSERT INTO tempat_uji_kompetensi (
-        kode_tuk, nama_tempat, jenis_tuk, lsp_induk_id, penanggung_jawab, lisensi_info, skkni_info, jadwal_info
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    RETURNING *`,
-    [
-      kode_tuk,
-      nama_tempat,
-      jenis_tuk,
-      lsp_induk_id,
-      penanggung_jawab,
-      lisensi_info,
-      skkni_info,
-      jadwal_info,
-    ]
+    `INSERT INTO tempat_uji_kompetensi (${columns}) VALUES (${placeholders}) RETURNING *`,
+    values
   );
-  return res.rows[0];
+  return mapTukOutputToApi(res.rows[0]);
 }
 
 async function getAllTuks({ search, limit, offset }) {
@@ -1032,11 +1664,64 @@ async function getAllTuks({ search, limit, offset }) {
   }
 
   const res = await query(queryText, queryParams);
-  return res.rows;
+  return res.rows.map(mapTukOutputToApi);
 }
 
-// Tambahkan fungsi untuk getById, update, delete dan getTotal (mirip lspModel)
-// ... (omitted for brevity, follow lspModel structure)
+async function getTukById(id) {
+  const res = await query(
+    `SELECT t.*, l.nama_lsp, l.jenis_lsp
+         FROM tempat_uji_kompetensi t
+         LEFT JOIN lsp_institutions l ON t.lsp_induk_id = l.id
+         WHERE t.id = $1`,
+    [id]
+  );
+  return mapTukOutputToApi(res.rows[0]);
+}
+
+async function updateTuk(id, tukData) {
+  const dbData = mapTukInputToDb(tukData);
+
+  const updates = [];
+  const values = [];
+  let paramIndex = 1;
+
+  for (const key in dbData) {
+    if (dbData.hasOwnProperty(key)) {
+      updates.push(`${key} = $${paramIndex}`);
+      values.push(dbData[key]);
+      paramIndex++;
+    }
+  }
+
+  if (updates.length === 0) {
+    return null;
+  }
+
+  values.push(id);
+
+  const res = await query(
+    `UPDATE tempat_uji_kompetensi SET ${updates.join(
+      ", "
+    )}, updated_at = CURRENT_TIMESTAMP WHERE id = $${paramIndex} RETURNING *`,
+    values
+  );
+
+  // Untuk mendapatkan lspInduk dan lspJenis, kita harus melakukan query ulang atau join
+  // Untuk sederhana, kita akan update dan kemudian mengambil data lengkap (getTukById)
+  if (res.rows[0]) {
+    return getTukById(id);
+  }
+  return null;
+}
+
+async function deleteTuk(id) {
+  const res = await query(
+    "DELETE FROM tempat_uji_kompetensi WHERE id = $1 RETURNING id",
+    [id]
+  );
+  return res.rows[0] ? { id: res.rows[0].id } : null;
+}
+
 async function getTotalTuks(search) {
   let queryText = "SELECT COUNT(*) FROM tempat_uji_kompetensi";
   let queryParams = [];
@@ -1059,45 +1744,155 @@ module.exports = {
   createTuk,
   getAllTuks,
   getTotalTuks,
-  // ... (export other functions)
+  getTukById,
+  updateTuk,
+  deleteTuk,
 };
 ```
 
-## lsp-backend/models/userModel.js
+## lsp-backend/modules/tuk/TempatUjiKompetensiRoutes.js
 
 ```js
-// models/userModel.js
-const { query } = require("../utils/db");
-const bcrypt = require("bcryptjs"); // Tambahkan ini karena updateUserPassword akan membutuhkannya untuk hash password baru
+// lsp-backend/modules/tuk/TempatUjiKompetensiRoutes.js
+const tukController = require("./TempatUjiKompetensiController");
+const authenticate = require("../../middlewares/authMiddleware");
+const authorize = require("../../middlewares/authorizeMiddleware");
 
-async function createUser(userData) {
-  const { username, password, email, role_id } = userData;
+async function tukRoutes(fastify, options) {
+  const preHandlerAdmin = [authenticate, authorize(["Admin"])];
+  const preHandlerAuth = [authenticate];
+
+  // GET All TUK (Auth required)
+  fastify.get(
+    "/",
+    { preHandler: preHandlerAuth },
+    tukController.getAllTuksHandler
+  );
+
+  // GET TUK by ID (Auth required)
+  fastify.get(
+    "/:id",
+    { preHandler: preHandlerAuth },
+    tukController.getTukByIdHandler
+  );
+
+  // CRUD (Admin only)
+  fastify.post(
+    "/",
+    { preHandler: preHandlerAdmin },
+    tukController.createTukHandler
+  );
+  fastify.put(
+    "/:id",
+    { preHandler: preHandlerAdmin },
+    tukController.updateTukHandler
+  );
+  fastify.delete(
+    "/:id",
+    { preHandler: preHandlerAdmin },
+    tukController.deleteTukHandler
+  );
+}
+
+module.exports = tukRoutes;
+```
+
+## lsp-backend/modules/user/userController.js
+
+```js
+// lsp-backend/modules/user/userController.js
+const userModel = require("./userModel");
+const bcrypt = require("bcryptjs");
+
+async function getMyProfile(request, reply) {
+  try {
+    const userId = request.user.id;
+    const user = await userModel.findUserById(userId);
+
+    if (!user) {
+      return reply.status(404).send({ message: "User not found" });
+    }
+
+    reply.send({ message: "User profile retrieved successfully", user });
+  } catch (error) {
+    console.error("Error getting user profile:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+async function changePassword(request, reply) {
+  try {
+    const userId = request.user.id;
+    const { currentPassword, newPassword } = request.body;
+
+    if (!currentPassword || !newPassword) {
+      return reply
+        .status(400)
+        .send({ message: "Current password and new password are required" });
+    }
+
+    // Ambil user dari database untuk memverifikasi password lama
+    const userWithPassword = await userModel.findUserByUsername(
+      request.user.username
+    );
+    if (!userWithPassword || userWithPassword.id !== userId) {
+      return reply.status(404).send({ message: "User not found or mismatch" });
+    }
+
+    // Verify current password
+    const isMatch = await bcrypt.compare(
+      currentPassword,
+      userWithPassword.password
+    );
+    if (!isMatch) {
+      return reply.status(401).send({ message: "Incorrect current password" });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password in the database
+    await userModel.updateUserPassword(userId, hashedPassword);
+
+    reply.send({ message: "Password updated successfully" });
+  } catch (error) {
+    console.error("Error changing password:", error);
+    reply.status(500).send({ message: "Internal server error" });
+  }
+}
+
+module.exports = {
+  getMyProfile,
+  changePassword,
+};
+```
+
+## lsp-backend/modules/user/userModel.js
+
+```js
+// lsp-backend/modules/user/userModel.js
+const { query } = require("../../utils/db");
+
+async function findUserById(userId) {
   const res = await query(
-    "INSERT INTO users (username, password, email, role_id) VALUES ($1, $2, $3, $4) RETURNING id, username, email, role_id",
-    [username, password, email, role_id]
+    `SELECT 
+        u.id, u.username, u.email, u.role_id, r.name AS role_name,
+        ap.full_name, ap.phone_number, ap.address, ap.ktp_number
+    FROM users u
+    LEFT JOIN roles r ON u.role_id = r.id
+    LEFT JOIN asesi_profiles ap ON u.id = ap.user_id
+    WHERE u.id = $1`,
+    [userId]
   );
   return res.rows[0];
 }
 
 async function findUserByUsername(username) {
-  // Kita mungkin butuh password untuk verifikasi login, jadi SELECT *
-  const res = await query("SELECT * FROM users WHERE username = $1", [
-    username,
-  ]);
-  return res.rows[0];
-}
-
-async function findUserById(id) {
-  // Untuk profil, kita tidak perlu mengembalikan password
+  // Khusus untuk mendapatkan password saat verifikasi ganti password
   const res = await query(
-    "SELECT id, username, email, role_id FROM users WHERE id = $1",
-    [id]
+    "SELECT id, username, password, email, role_id FROM users WHERE username = $1",
+    [username]
   );
-  return res.rows[0];
-}
-
-async function getRoleByName(roleName) {
-  const res = await query("SELECT id FROM roles WHERE name = $1", [roleName]);
   return res.rows[0];
 }
 
@@ -1109,184 +1904,22 @@ async function updateUserPassword(userId, hashedPassword) {
   return res.rows[0];
 }
 
-async function getRoleById(roleId) {
-  const res = await query("SELECT name FROM roles WHERE id = $1", [roleId]);
-  return res.rows[0];
-}
-
 module.exports = {
-  createUser,
-  findUserByUsername,
   findUserById,
-  getRoleByName,
+  findUserByUsername,
   updateUserPassword,
-  getRoleById, // Export the new function
 };
 ```
 
-## lsp-backend/routes/authRoutes.js
+## lsp-backend/modules/user/userRoutes.js
 
 ```js
-// routes/authRoutes.js
-const authController = require("../controllers/authController");
-
-async function authRoutes(fastify, options) {
-  fastify.post("/register", authController.register);
-  fastify.post("/login", authController.login);
-}
-
-module.exports = authRoutes;
-```
-
-## lsp-backend/routes/eukRoutes.js
-
-```js
-// routes/eukRoutes.js
-const eukController = require("../controllers/eukController");
-const authenticate = require("../middlewares/authMiddleware");
-const authorize = require("../middlewares/authorizeMiddleware");
-
-async function eukRoutes(fastify, options) {
-  // Hanya Admin yang bisa CRUD EUK
-  const preHandlerAdmin = [authenticate, authorize(["Admin"])];
-  const preHandlerAuth = [authenticate];
-
-  fastify.get(
-    "/",
-    { preHandler: preHandlerAuth },
-    eukController.getAllEuksHandler
-  );
-  // fastify.get("/:id", { preHandler: preHandlerAuth }, eukController.getEukByIdHandler);
-
-  // fastify.post("/", { preHandler: preHandlerAdmin }, eukController.createEukHandler);
-  // fastify.put("/:id", { preHandler: preHandlerAdmin }, eukController.updateEukHandler);
-  // fastify.delete("/:id", { preHandler: preHandlerAdmin }, eukController.deleteEukHandler);
-}
-
-module.exports = eukRoutes;
-```
-
-## lsp-backend/routes/lspRoutes.js
-
-```js
-// routes/lspRoutes.js
-const lspController = require("../controllers/lspController");
-const authenticate = require("../middlewares/authMiddleware"); // Untuk melindungi rute
-const authorize = require("../middlewares/authorizeMiddleware"); // Middleware baru untuk otorisasi
-
-async function lspRoutes(fastify, options) {
-  // Memerlukan autentikasi untuk semua operasi LSP
-  // Dan mungkin otorisasi (misal: hanya Admin yang bisa CRUD LSP)
-
-  // GET /api/lsps - Dapatkan semua LSP (bisa diakses publik atau hanya user terautentikasi)
-  fastify.get(
-    "/",
-    {
-      preHandler: [authenticate /*, authorize(['Admin', 'Asesi', 'Asesor'])*/],
-    },
-    lspController.getAllLspsHandler
-  );
-  // GET /api/lsps/:id - Dapatkan LSP berdasarkan ID
-  fastify.get(
-    "/:id",
-    {
-      preHandler: [authenticate /*, authorize(['Admin', 'Asesi', 'Asesor'])*/],
-    },
-    lspController.getLspByIdHandler
-  );
-
-  // POST /api/lsps - Buat LSP baru (Hanya Admin)
-  fastify.post(
-    "/",
-    { preHandler: [authenticate, authorize(["Admin"])] },
-    lspController.createLspHandler
-  );
-  // PUT /api/lsps/:id - Perbarui LSP (Hanya Admin)
-  fastify.put(
-    "/:id",
-    { preHandler: [authenticate, authorize(["Admin"])] },
-    lspController.updateLspHandler
-  );
-  // DELETE /api/lsps/:id - Hapus LSP (Hanya Admin)
-  fastify.delete(
-    "/:id",
-    { preHandler: [authenticate, authorize(["Admin"])] },
-    lspController.deleteLspHandler
-  );
-}
-
-module.exports = lspRoutes;
-```
-
-## lsp-backend/routes/schemeRoutes.js
-
-```js
-// routes/schemeRoutes.js
-const schemeController = require("../controllers/schemeController");
-const authenticate = require("../middlewares/authMiddleware");
-const authorize = require("../middlewares/authorizeMiddleware");
-
-async function schemeRoutes(fastify, options) {
-  // Hanya Admin yang bisa CRUD Skema
-  const preHandlerAdmin = [authenticate, authorize(["Admin"])];
-  const preHandlerAuth = [authenticate];
-
-  fastify.get(
-    "/",
-    { preHandler: preHandlerAuth },
-    schemeController.getAllSchemesHandler
-  );
-  // fastify.get("/:id", { preHandler: preHandlerAuth }, schemeController.getSchemeByIdHandler);
-
-  // fastify.post("/", { preHandler: preHandlerAdmin }, schemeController.createSchemeHandler);
-  // fastify.put("/:id", { preHandler: preHandlerAdmin }, schemeController.updateSchemeHandler);
-  // fastify.delete("/:id", { preHandler: preHandlerAdmin }, schemeController.deleteSchemeHandler);
-
-  // Rute untuk persyaratan skema (nested resource)
-  // fastify.get("/:schemeId/requirements", { preHandler: preHandlerAuth }, schemeController.getRequirementsHandler);
-  // fastify.post("/:schemeId/requirements", { preHandler: preHandlerAdmin }, schemeController.createRequirementHandler);
-}
-
-module.exports = schemeRoutes;
-```
-
-## lsp-backend/routes/tukRoutes.js
-
-```js
-// routes/tukRoutes.js
-const tukController = require("../controllers/tukController");
-const authenticate = require("../middlewares/authMiddleware");
-const authorize = require("../middlewares/authorizeMiddleware");
-
-async function tukRoutes(fastify, options) {
-  // Hanya Admin yang bisa CRUD TUK
-  const preHandlerAdmin = [authenticate, authorize(["Admin"])];
-  const preHandlerAuth = [authenticate];
-
-  fastify.get(
-    "/",
-    { preHandler: preHandlerAuth },
-    tukController.getAllTuksHandler
-  );
-  // fastify.get("/:id", { preHandler: preHandlerAuth }, tukController.getTukByIdHandler);
-
-  // fastify.post("/", { preHandler: preHandlerAdmin }, tukController.createTukHandler);
-  // fastify.put("/:id", { preHandler: preHandlerAdmin }, tukController.updateTukHandler);
-  // fastify.delete("/:id", { preHandler: preHandlerAdmin }, tukController.deleteTukHandler);
-}
-
-module.exports = tukRoutes;
-```
-
-## lsp-backend/routes/userRoutes.js
-
-```js
-// routes/userRoutes.js
-const userController = require("../controllers/userController");
-const authenticate = require("../middlewares/authMiddleware");
+// lsp-backend/modules/user/userRoutes.js
+const userController = require("./userController");
+const authenticate = require("../../middlewares/authMiddleware");
 
 async function userRoutes(fastify, options) {
-  // Rute yang membutuhkan autentikasi
+  // Semua rute di sini memerlukan autentikasi
   fastify.get(
     "/profile",
     { preHandler: [authenticate] },
@@ -1297,10 +1930,75 @@ async function userRoutes(fastify, options) {
     { preHandler: [authenticate] },
     userController.changePassword
   );
-  // ... rute user lain yang dilindungi
 }
 
 module.exports = userRoutes;
+```
+
+## lsp-backend/utils/dataMapper.js
+
+```js
+// lsp-backend/utils/dataMapper.js
+
+/**
+ * Mengubah string dari camelCase menjadi snake_case.
+ * Contoh: "namaLsp" -> "nama_lsp"
+ */
+const toSnakeCase = (str) => {
+  if (!str) return str;
+  return str.replace(/([A-Z])/g, "_$1").toLowerCase();
+};
+
+/**
+ * Mengubah string dari snake_case menjadi camelCase.
+ * Contoh: "nama_lsp" -> "namaLsp"
+ */
+const toCamelCase = (str) => {
+  if (!str) return str;
+  return str.replace(/([_][a-z])/gi, ($1) => {
+    return $1.toUpperCase().replace("_", "");
+  });
+};
+
+/**
+ * Mengubah kunci objek dari camelCase ke snake_case.
+ */
+const mapToSnakeCase = (obj) => {
+  if (typeof obj !== "object" || obj === null) return obj;
+
+  return Object.keys(obj).reduce((acc, key) => {
+    const newKey = toSnakeCase(key);
+    acc[newKey] = obj[key];
+    return acc;
+  }, {});
+};
+
+/**
+ * Mengubah kunci objek atau array objek dari snake_case ke camelCase.
+ */
+const mapToCamelCase = (data) => {
+  if (!data) return data;
+
+  // Jika input adalah array, map setiap item
+  if (Array.isArray(data)) {
+    return data.map(mapToCamelCase);
+  }
+
+  // Jika input bukan objek, kembalikan data asli
+  if (typeof data !== "object" || data === null) return data;
+
+  // Jika input adalah objek, konversi kuncinya
+  return Object.keys(data).reduce((acc, key) => {
+    const newKey = toCamelCase(key);
+    acc[newKey] = data[key];
+    return acc;
+  }, {});
+};
+
+module.exports = {
+  mapToSnakeCase,
+  mapToCamelCase,
+};
 ```
 
 ## lsp-backend/utils/db.js
@@ -1319,9 +2017,15 @@ async function query(text, params) {
   }
 }
 
+// Tambahkan fungsi untuk mendapatkan client pool secara langsung (untuk transaksi)
+async function getClient() {
+  return pool.connect();
+}
+
 module.exports = {
   query,
-  pool, // Ekspor pool juga jika dibutuhkan langsung di tempat lain (misalnya untuk transaksi)
+  pool,
+  getClient, // Export fungsi baru
 };
 ```
 

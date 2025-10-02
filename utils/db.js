@@ -11,7 +11,13 @@ async function query(text, params) {
   }
 }
 
+// Tambahkan fungsi untuk mendapatkan client pool secara langsung (untuk transaksi)
+async function getClient() {
+  return pool.connect();
+}
+
 module.exports = {
   query,
-  pool, // Ekspor pool juga jika dibutuhkan langsung di tempat lain (misalnya untuk transaksi)
+  pool,
+  getClient, // Export fungsi baru
 };

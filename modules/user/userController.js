@@ -1,12 +1,10 @@
-// controllers/userController.js
-const userModel = require("../models/userModel");
-const bcrypt = require("bcryptjs"); // Perlu untuk mengganti password
+// lsp-backend/modules/user/userController.js
+const userModel = require("./userModel");
+const bcrypt = require("bcryptjs");
 
 async function getMyProfile(request, reply) {
   try {
-    // Data user berasal dari token yang didecode oleh middleware autentikasi
     const userId = request.user.id;
-    // Kita bisa ambil data user lengkap dari model
     const user = await userModel.findUserById(userId);
 
     if (!user) {
@@ -32,13 +30,10 @@ async function changePassword(request, reply) {
     }
 
     // Ambil user dari database untuk memverifikasi password lama
-    // Gunakan findUserById tapi ambil juga password-nya, atau buat fungsi khusus
-    // Untuk saat ini, kita bisa modifikasi findUserById atau buat fungsi baru di model
     const userWithPassword = await userModel.findUserByUsername(
       request.user.username
-    ); // Ambil user lengkap termasuk password
+    );
     if (!userWithPassword || userWithPassword.id !== userId) {
-      // Pastikan user adalah user yang login
       return reply.status(404).send({ message: "User not found or mismatch" });
     }
 
@@ -64,7 +59,6 @@ async function changePassword(request, reply) {
   }
 }
 
-// Hanya ekspor fungsi-fungsi controller
 module.exports = {
   getMyProfile,
   changePassword,

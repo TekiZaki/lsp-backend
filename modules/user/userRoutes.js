@@ -1,9 +1,9 @@
-// routes/userRoutes.js
-const userController = require("../controllers/userController");
-const authenticate = require("../middlewares/authMiddleware");
+// lsp-backend/modules/user/userRoutes.js
+const userController = require("./userController");
+const authenticate = require("../../middlewares/authMiddleware");
 
 async function userRoutes(fastify, options) {
-  // Rute yang membutuhkan autentikasi
+  // Semua rute di sini memerlukan autentikasi
   fastify.get(
     "/profile",
     { preHandler: [authenticate] },
@@ -14,7 +14,6 @@ async function userRoutes(fastify, options) {
     { preHandler: [authenticate] },
     userController.changePassword
   );
-  // ... rute user lain yang dilindungi
 }
 
 module.exports = userRoutes;

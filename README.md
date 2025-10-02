@@ -128,14 +128,34 @@ JWT_EXPIRES_IN=1h
 
 ---
 
-## 📝 Contoh Dokumentasi API (Postman)
+## 📝 Dokumentasi API (Postman)
 
-### 1. Register User
+# Dokumentasi API - Autentikasi (AUTH)
 
-- URL: `http://localhost:3000/api/auth/register`
-- Method: POST
-- Headers: Content-Type: application/json
-- Body:
+Base URL: `http://localhost:3000/api/auth`
+
+## 1. Registrasi Pengguna Baru
+
+Endpoint ini digunakan untuk mendaftarkan pengguna baru (Admin, Asesi, atau Asesor). Karena implementasi di backend telah disesuaikan untuk menerima data detail Asesi saat mendaftar sebagai `Asesi`, format body akan berbeda tergantung pada `role_name`.
+
+### 1.1. Registrasi Umum (Admin/Asesor)
+
+Digunakan untuk peran yang hanya memerlukan data dasar (username, password, email).
+
+| Detail      | Deskripsi                        |
+| :---------- | :------------------------------- |
+| **URL**     | `/register`                      |
+| **Method**  | `POST`                           |
+| **Headers** | `Content-Type: application/json` |
+
+#### Body (Raw, JSON)
+
+| Field       | Tipe   | Deskripsi                              | Wajib | Contoh                |
+| :---------- | :----- | :------------------------------------- | :---- | :-------------------- |
+| `username`  | String | Nama pengguna (misalnya: NPP)          | Ya    | `"adminuser"`         |
+| `password`  | String | Kata sandi                             | Ya    | `"password123"`       |
+| `email`     | String | Alamat email                           | Ya    | `"admin@example.com"` |
+| `role_name` | String | Peran pengguna (`Admin` atau `Asesor`) | Ya    | `"Admin"`             |
 
 ```json
 {
@@ -146,11 +166,90 @@ JWT_EXPIRES_IN=1h
 }
 ```
 
-### 2. Login
+#### Contoh Respon Sukses (Status: 201 Created)
 
-- URL: `http://localhost:3000/api/auth/login`
-- Method: POST
-- Body:
+```json
+{
+  "message": "User registered successfully",
+  "user": {
+    "id": 1,
+    "username": "adminuser",
+    "email": "admin@example.com",
+    "role_id": 1
+  }
+}
+```
+
+---
+
+### 1.2. Registrasi Asesi (Disarankan)
+
+Digunakan khusus untuk peran `Asesi`. Karena backend memodifikasi `register` untuk membuat entri di tabel `asesi_profiles` juga, body request memerlukan detail tambahan.
+
+| Detail      | Deskripsi                        |
+| :---------- | :------------------------------- |
+| **URL**     | `/register`                      |
+| **Method**  | `POST`                           |
+| **Headers** | `Content-Type: application/json` |
+
+#### Body (Raw, JSON)
+
+| Field          | Tipe   | Deskripsi          | Wajib | Contoh                     |
+| :------------- | :----- | :----------------- | :---- | :------------------------- |
+| `username`     | String | NPP Asesi          | Ya    | `"12345678"`               |
+| `password`     | String | Kata sandi         | Ya    | `"asesipass"`              |
+| `email`        | String | Alamat email       | Ya    | `"asesi@pindad.co.id"`     |
+| `full_name`    | String | Nama lengkap Asesi | Ya    | `"Budi Santoso"`           |
+| `ktp_number`   | String | Nomor KTP/NIK      | Ya    | `"3273110001000001"`       |
+| `phone_number` | String | Nomor telepon/HP   | Tidak | `"08123456789"`            |
+| `address`      | String | Alamat lengkap     | Tidak | `"Jl. Asia Afrika No. 12"` |
+
+**Catatan:** `role_name` tidak perlu dikirim dalam skenario ini karena controller mengasumsikannya sebagai `"Asesi"`. Jika Anda ingin menggunakan satu form register untuk semua peran, Anda harus menyertakan `role_name: "Asesi"`.
+
+```json
+{
+  "username": "12345678",
+  "password": "asesipass",
+  "email": "asesi@pindad.co.id",
+  "full_name": "Budi Santoso",
+  "ktp_number": "3273110001000001",
+  "phone_number": "08123456789",
+  "address": "Jl. Asia Afrika No. 12, Bandung"
+}
+```
+
+#### Contoh Respon Sukses (Status: 201 Created)
+
+```json
+{
+  "message": "Asesi registered successfully",
+  "user": {
+    "id": 2,
+    "username": "12345678",
+    "email": "asesi@pindad.co.id",
+    "role_id": 2
+  }
+}
+```
+
+---
+
+## 2. Login Pengguna
+
+Endpoint ini digunakan untuk mengautentikasi pengguna dan mendapatkan JSON Web Token (JWT) yang akan digunakan untuk mengakses rute yang dilindungi.
+
+| Detail      | Deskripsi                        |
+| :---------- | :------------------------------- |
+| **URL**     | `/login`                         |
+| **Method**  | `POST`                           |
+| **Headers** | `Content-Type: application/json` |
+
+#### Body (Raw, JSON)
+
+| Field      | Tipe   | Deskripsi           | Wajib | Contoh          |
+| :--------- | :----- | :------------------ | :---- | :-------------- |
+| `username` | String | Nama pengguna (NPP) | Ya    | `"adminuser"`   |
+| `password` | String | Kata sandi          | Ya    | `"password123"` |
 
 ```json
 {
@@ -159,27 +258,65 @@ JWT_EXPIRES_IN=1h
 }
 ```
 
-### 3. Get My Profile (JWT Required)
+#### Contoh Respon Sukses (Status: 200 OK)
 
-- URL: `http://localhost:3000/api/users/profile`
-- Method: GET
-- Headers:
-
-  - Authorization: Bearer `<jwt_token>`
-
-### 4. Change Password (JWT Required)
-
-- URL: `http://localhost:3000/api/users/change-password`
-- Method: POST
-- Headers:
-
-  - Authorization: Bearer `<jwt_token>`
-
-- Body:
+Simpan nilai `token` untuk digunakan dalam header `Authorization` pada request berikutnya.
 
 ```json
 {
-  "currentPassword": "password123",
-  "newPassword": "newsecurepassword"
+  "message": "Login successful",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwidXNlcm5hbWUiOiJhZG1pbnVzZXIiLCJyb2xlX2lkIjoxLCJpYXQiOjE2ODcyMzU4MTcsImV4cCI6MTY4NzIzOTQxN30.gWd1zV_7-oXbYxQZJzYJ5sA5xYjP3nF0P4QkM4gJ9Qc",
+  "user": {
+    "id": 1,
+    "username": "adminuser",
+    "email": "admin@example.com",
+    "role_id": 1
+  }
+}
+```
+
+#### Contoh Respon Gagal (Status: 401 Unauthorized)
+
+```json
+{
+  "message": "Invalid credentials"
+}
+```
+
+---
+
+## 3. Lupa Password
+
+Endpoint ini digunakan untuk memproses permintaan lupa password (menggunakan data yang dikumpulkan dari frontend).
+
+| Detail      | Deskripsi                        |
+| :---------- | :------------------------------- |
+| **URL**     | `/forgot-password`               |
+| **Method**  | `POST`                           |
+| **Headers** | `Content-Type: application/json` |
+
+#### Body (Raw, JSON)
+
+| Field        | Tipe   | Deskripsi                   | Wajib | Contoh                 |
+| :----------- | :----- | :-------------------------- | :---- | :--------------------- |
+| `npp`        | String | NPP pengguna                | Ya    | `"adminuser"`          |
+| `ktp_number` | String | Nomor KTP/NIK               | Ya    | `"3273110001000001"`   |
+| `email`      | String | Alamat email yang terdaftar | Ya    | `"asesi@pindad.co.id"` |
+
+```json
+{
+  "npp": "12345678",
+  "ktp_number": "3273110001000001",
+  "email": "asesi@pindad.co.id"
+}
+```
+
+#### Contoh Respon Sukses (Status: 200 OK)
+
+Meskipun ini hanya simulasi, respon yang sukses menunjukkan bahwa proses validasi data telah terpenuhi.
+
+```json
+{
+  "message": "Jika data ditemukan, link reset password telah dikirimkan ke email Anda."
 }
 ```

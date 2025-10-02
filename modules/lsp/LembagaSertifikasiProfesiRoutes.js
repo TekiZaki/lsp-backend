@@ -1,13 +1,10 @@
-// routes/lspRoutes.js
-const lspController = require("../controllers/lspController");
-const authenticate = require("../middlewares/authMiddleware"); // Untuk melindungi rute
-const authorize = require("../middlewares/authorizeMiddleware"); // Middleware baru untuk otorisasi
+// lsp-backend/modules/lsp/LembagaSertifikasiProfesiRoutes.js
+const lspController = require("./LembagaSertifikasiProfesiController");
+const authenticate = require("../../middlewares/authMiddleware");
+const authorize = require("../../middlewares/authorizeMiddleware");
 
 async function lspRoutes(fastify, options) {
-  // Memerlukan autentikasi untuk semua operasi LSP
-  // Dan mungkin otorisasi (misal: hanya Admin yang bisa CRUD LSP)
-
-  // GET /api/lsps - Dapatkan semua LSP (bisa diakses publik atau hanya user terautentikasi)
+  // GET /api/lsps
   fastify.get(
     "/",
     {
@@ -15,7 +12,7 @@ async function lspRoutes(fastify, options) {
     },
     lspController.getAllLspsHandler
   );
-  // GET /api/lsps/:id - Dapatkan LSP berdasarkan ID
+  // GET /api/lsps/:id
   fastify.get(
     "/:id",
     {
@@ -24,19 +21,19 @@ async function lspRoutes(fastify, options) {
     lspController.getLspByIdHandler
   );
 
-  // POST /api/lsps - Buat LSP baru (Hanya Admin)
+  // POST /api/lsps (Hanya Admin)
   fastify.post(
     "/",
     { preHandler: [authenticate, authorize(["Admin"])] },
     lspController.createLspHandler
   );
-  // PUT /api/lsps/:id - Perbarui LSP (Hanya Admin)
+  // PUT /api/lsps/:id (Hanya Admin)
   fastify.put(
     "/:id",
     { preHandler: [authenticate, authorize(["Admin"])] },
     lspController.updateLspHandler
   );
-  // DELETE /api/lsps/:id - Hapus LSP (Hanya Admin)
+  // DELETE /api/lsps/:id (Hanya Admin)
   fastify.delete(
     "/:id",
     { preHandler: [authenticate, authorize(["Admin"])] },

@@ -1,5 +1,5 @@
-// controllers/lspController.js
-const lspModel = require("../models/lspModel");
+// lsp-backend/modules/lsp/LembagaSertifikasiProfesiController.js
+const lspModel = require("./LembagaSertifikasiProfesiModel");
 
 async function createLspHandler(request, reply) {
   try {
