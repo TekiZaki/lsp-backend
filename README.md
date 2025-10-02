@@ -72,7 +72,7 @@ ADMIN_SECRET=your_admin_secret
 
 ## 📌 Dokumentasi API
 
-Dokumentasi API tersedia di file [postman3.md](./postman3.md) dan dapat diimpor ke Postman. Berikut ringkasan modul:
+Dokumentasi API tersedia di file [postman.md](./postman.md) dan dapat diimpor ke Postman. Berikut ringkasan modul:
 
 ### 🔑 Modul Autentikasi (`/api/auth`)
 
