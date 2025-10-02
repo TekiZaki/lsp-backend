@@ -2,9 +2,13 @@
 const bcrypt = require("bcryptjs");
 const { generateToken } = require("../../utils/jwt");
 const authModel = require("./authModel");
-const globalModel = require("../../models/globalModel"); // Impor Global Model
+const globalModel = require("../../models/globalModel");
 const { getClient } = require("../../utils/db");
+const { adminSecret } = require("../../config/jwt"); // NEW: Import admin secret
 
+// ====================================================================
+// REGISTRASI ASESI (Public endpoint)
+// ====================================================================
 async function register(request, reply) {
   const client = await getClient();
   try {
@@ -35,7 +39,7 @@ async function register(request, reply) {
         .send({ message: "Username (NPP) already taken" });
     }
 
-    // 2. Dapatkan role_id 'Asesi' dari GlobalModel
+    // 2. Dapatkan role_id 'Asesi'
     const role = await globalModel.getRoleByName(role_name);
     if (!role) {
       await client.query("ROLLBACK");
@@ -83,6 +87,120 @@ async function register(request, reply) {
   }
 }
 
+// ====================================================================
+// REGISTRASI ADMIN/ASESOR (Secret key required)
+// ====================================================================
+async function registerAdminOrAsesor(request, reply) {
+  const client = await getClient();
+  try {
+    const {
+      username,
+      password,
+      email,
+      role_name, // 'Admin' or 'Asesor'
+      admin_secret, // Secret key
+      // Profile data
+      full_name,
+      position, // for Admin
+      reg_number, // for Asesor
+    } = request.body;
+
+    // 1. Verifikasi Admin Secret
+    if (admin_secret !== adminSecret) {
+      return reply.status(403).send({ message: "Invalid admin secret key" });
+    }
+
+    if (role_name !== "Admin" && role_name !== "Asesor") {
+      return reply.status(400).send({ message: "Invalid role_name specified" });
+    }
+
+    if (!username || !password || !email || !full_name) {
+      return reply.status(400).send({ message: "Required fields are missing" });
+    }
+
+    // Validasi field spesifik
+    if (role_name === "Admin" && !position) {
+      return reply
+        .status(400)
+        .send({ message: "Position is required for Admin" });
+    }
+    if (role_name === "Asesor" && !reg_number) {
+      return reply
+        .status(400)
+        .send({ message: "Registration number is required for Asesor" });
+    }
+
+    await client.query("BEGIN");
+
+    // 2. Cek username
+    const existingUser = await authModel.findUserByUsername(username);
+    if (existingUser) {
+      await client.query("ROLLBACK");
+      return reply.status(409).send({ message: "Username already taken" });
+    }
+
+    // 3. Dapatkan role_id
+    const role = await globalModel.getRoleByName(role_name);
+    if (!role) {
+      await client.query("ROLLBACK");
+      return reply
+        .status(400)
+        .send({ message: `Role '${role_name}' not found` });
+    }
+    const role_id = role.id;
+
+    // 4. Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 5. Buat user baru
+    const newUser = await authModel.createUser(
+      client,
+      username,
+      hashedPassword,
+      email,
+      role_id
+    );
+
+    // 6. Buat profil
+    if (role_name === "Admin") {
+      await authModel.createAdminProfile(client, newUser.id, {
+        full_name,
+        position,
+      });
+    } else if (role_name === "Asesor") {
+      await authModel.createAsesorProfile(client, newUser.id, {
+        full_name,
+        reg_number,
+      });
+    }
+
+    await client.query("COMMIT");
+
+    reply.status(201).send({
+      message: `${role_name} registered successfully`,
+      user: {
+        id: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        role_id: newUser.role_id,
+        role_name: role_name,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error(
+      `Error during ${request.body.role_name} registration:`,
+      error
+    );
+    reply.status(500).send({ message: "Internal server error" });
+  } finally {
+    client.release();
+  }
+}
+
+// ====================================================================
+// LOGIN
+// ====================================================================
 async function login(request, reply) {
   try {
     const { username, password } = request.body;
@@ -98,15 +216,20 @@ async function login(request, reply) {
       return reply.status(401).send({ message: "Invalid credentials" });
     }
 
+    // Menggunakan Bcrypt
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return reply.status(401).send({ message: "Invalid credentials" });
     }
 
+    // Dapatkan nama peran untuk disimpan di token (opsional, tapi membantu)
+    const role = await globalModel.getRoleById(user.role_id);
+
     const token = generateToken({
       id: user.id,
       username: user.username,
       role_id: user.role_id,
+      role_name: role ? role.name : "Unknown",
     });
 
     reply.send({
@@ -117,6 +240,7 @@ async function login(request, reply) {
         username: user.username,
         email: user.email,
         role_id: user.role_id,
+        role_name: role ? role.name : "Unknown",
       },
     });
   } catch (error) {
@@ -125,32 +249,55 @@ async function login(request, reply) {
   }
 }
 
+// ====================================================================
+// FORGOT PASSWORD (Hanya untuk Admin/Asesor/Asesi yang lupa password)
+// Asumsi: Ini adalah proses reset (ganti password tanpa login, tapi dengan verifikasi KTP/Email)
+// Karena kita tidak mengimplementasikan email, kita simulasikan proses verifikasi.
+// ====================================================================
 async function forgotPassword(request, reply) {
-  // Logika Forgot Password tidak berubah
+  const client = await getClient();
   try {
-    const { npp, ktp_number, email } = request.body;
+    const { username, email, new_password } = request.body;
 
-    if (!npp || !ktp_number || !email) {
-      return reply.status(400).send({ message: "All fields are required" });
+    if (!username || !email || !new_password) {
+      return reply
+        .status(400)
+        .send({ message: "Username, email, and new password are required" });
     }
 
-    const user = await authModel.findUserByUsername(npp);
-    if (!user) {
-      return reply.status(404).send({ message: "User not found" });
+    const user = await authModel.findUserByUsername(username);
+    if (!user || user.email !== email) {
+      return reply
+        .status(401)
+        .send({ message: "Invalid username or email verification." });
     }
+
+    await client.query("BEGIN");
+
+    // Hash password baru
+    const hashedPassword = await bcrypt.hash(new_password, 10);
+
+    // Update password
+    await authModel.updatePasswordByUsername(client, username, hashedPassword);
+
+    await client.query("COMMIT");
 
     reply.send({
       message:
-        "Jika data ditemukan, link reset password telah dikirimkan ke email Anda.",
+        "Password has been successfully reset. Please log in with your new password.",
     });
   } catch (error) {
+    await client.query("ROLLBACK");
     console.error("Error during forgot password process:", error);
     reply.status(500).send({ message: "Internal server error" });
+  } finally {
+    client.release();
   }
 }
 
 module.exports = {
   register,
+  registerAdminOrAsesor, // Export baru
   login,
   forgotPassword,
 };

@@ -99,7 +99,29 @@ CREATE TABLE asesi_profiles (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. LSP Institutions
+-- 4. Asesor Profiles (NEW)
+CREATE TABLE asesor_profiles (
+    id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    full_name VARCHAR(100) NOT NULL,
+    reg_number VARCHAR(50) UNIQUE NOT NULL, -- Nomor Registrasi Asesor
+    is_certified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5. Admin Profiles (NEW)
+CREATE TABLE admin_profiles (
+    id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    full_name VARCHAR(100) NOT NULL,
+    position VARCHAR(100), -- Contoh: Manager, IT Support
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+-- 6. LSP Institutions
 CREATE TABLE lsp_institutions (
     id SERIAL PRIMARY KEY,
     nama_lsp VARCHAR(150) NOT NULL,
@@ -113,7 +135,7 @@ CREATE TABLE lsp_institutions (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 5. Tempat Uji Kompetensi (TUK)
+-- 7. Tempat Uji Kompetensi (TUK)
 CREATE TABLE tempat_uji_kompetensi (
     id SERIAL PRIMARY KEY,
     kode_tuk VARCHAR(50) UNIQUE NOT NULL,
@@ -128,7 +150,7 @@ CREATE TABLE tempat_uji_kompetensi (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. Certification Schemes
+-- 8. Certification Schemes
 CREATE TABLE certification_schemes (
     id SERIAL PRIMARY KEY,
     code VARCHAR(50) UNIQUE NOT NULL,
@@ -141,7 +163,7 @@ CREATE TABLE certification_schemes (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 7. Events (EUK - Event Uji Kompetensi)
+-- 9. Events (EUK - Event Uji Kompetensi)
 CREATE TABLE events (
     id SERIAL PRIMARY KEY,
     event_name VARCHAR(150) NOT NULL,
@@ -160,12 +182,11 @@ CREATE TABLE events (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 8. Default Roles
+-- 10. Default Roles
 INSERT INTO roles (name) VALUES
 ('Admin'),
 ('Asesi'),
 ('Asesor');
-
 ```
 
 ## lsp-backend/config/database.js
@@ -196,6 +217,7 @@ require("dotenv").config();
 module.exports = {
   secret: process.env.JWT_SECRET,
   expiresIn: process.env.JWT_EXPIRES_IN || "1h",
+  adminSecret: process.env.ADMIN_SECRET, // NEW: Secret key for admin registration
 };
 ```
 
@@ -313,9 +335,13 @@ module.exports = {
 const bcrypt = require("bcryptjs");
 const { generateToken } = require("../../utils/jwt");
 const authModel = require("./authModel");
-const globalModel = require("../../models/globalModel"); // Impor Global Model
+const globalModel = require("../../models/globalModel");
 const { getClient } = require("../../utils/db");
+const { adminSecret } = require("../../config/jwt"); // NEW: Import admin secret
 
+// ====================================================================
+// REGISTRASI ASESI (Public endpoint)
+// ====================================================================
 async function register(request, reply) {
   const client = await getClient();
   try {
@@ -346,7 +372,7 @@ async function register(request, reply) {
         .send({ message: "Username (NPP) already taken" });
     }
 
-    // 2. Dapatkan role_id 'Asesi' dari GlobalModel
+    // 2. Dapatkan role_id 'Asesi'
     const role = await globalModel.getRoleByName(role_name);
     if (!role) {
       await client.query("ROLLBACK");
@@ -394,6 +420,120 @@ async function register(request, reply) {
   }
 }
 
+// ====================================================================
+// REGISTRASI ADMIN/ASESOR (Secret key required)
+// ====================================================================
+async function registerAdminOrAsesor(request, reply) {
+  const client = await getClient();
+  try {
+    const {
+      username,
+      password,
+      email,
+      role_name, // 'Admin' or 'Asesor'
+      admin_secret, // Secret key
+      // Profile data
+      full_name,
+      position, // for Admin
+      reg_number, // for Asesor
+    } = request.body;
+
+    // 1. Verifikasi Admin Secret
+    if (admin_secret !== adminSecret) {
+      return reply.status(403).send({ message: "Invalid admin secret key" });
+    }
+
+    if (role_name !== "Admin" && role_name !== "Asesor") {
+      return reply.status(400).send({ message: "Invalid role_name specified" });
+    }
+
+    if (!username || !password || !email || !full_name) {
+      return reply.status(400).send({ message: "Required fields are missing" });
+    }
+
+    // Validasi field spesifik
+    if (role_name === "Admin" && !position) {
+      return reply
+        .status(400)
+        .send({ message: "Position is required for Admin" });
+    }
+    if (role_name === "Asesor" && !reg_number) {
+      return reply
+        .status(400)
+        .send({ message: "Registration number is required for Asesor" });
+    }
+
+    await client.query("BEGIN");
+
+    // 2. Cek username
+    const existingUser = await authModel.findUserByUsername(username);
+    if (existingUser) {
+      await client.query("ROLLBACK");
+      return reply.status(409).send({ message: "Username already taken" });
+    }
+
+    // 3. Dapatkan role_id
+    const role = await globalModel.getRoleByName(role_name);
+    if (!role) {
+      await client.query("ROLLBACK");
+      return reply
+        .status(400)
+        .send({ message: `Role '${role_name}' not found` });
+    }
+    const role_id = role.id;
+
+    // 4. Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 5. Buat user baru
+    const newUser = await authModel.createUser(
+      client,
+      username,
+      hashedPassword,
+      email,
+      role_id
+    );
+
+    // 6. Buat profil
+    if (role_name === "Admin") {
+      await authModel.createAdminProfile(client, newUser.id, {
+        full_name,
+        position,
+      });
+    } else if (role_name === "Asesor") {
+      await authModel.createAsesorProfile(client, newUser.id, {
+        full_name,
+        reg_number,
+      });
+    }
+
+    await client.query("COMMIT");
+
+    reply.status(201).send({
+      message: `${role_name} registered successfully`,
+      user: {
+        id: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        role_id: newUser.role_id,
+        role_name: role_name,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error(
+      `Error during ${request.body.role_name} registration:`,
+      error
+    );
+    reply.status(500).send({ message: "Internal server error" });
+  } finally {
+    client.release();
+  }
+}
+
+// ====================================================================
+// LOGIN
+// ====================================================================
 async function login(request, reply) {
   try {
     const { username, password } = request.body;
@@ -409,15 +549,20 @@ async function login(request, reply) {
       return reply.status(401).send({ message: "Invalid credentials" });
     }
 
+    // Menggunakan Bcrypt
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return reply.status(401).send({ message: "Invalid credentials" });
     }
 
+    // Dapatkan nama peran untuk disimpan di token (opsional, tapi membantu)
+    const role = await globalModel.getRoleById(user.role_id);
+
     const token = generateToken({
       id: user.id,
       username: user.username,
       role_id: user.role_id,
+      role_name: role ? role.name : "Unknown",
     });
 
     reply.send({
@@ -428,6 +573,7 @@ async function login(request, reply) {
         username: user.username,
         email: user.email,
         role_id: user.role_id,
+        role_name: role ? role.name : "Unknown",
       },
     });
   } catch (error) {
@@ -436,32 +582,55 @@ async function login(request, reply) {
   }
 }
 
+// ====================================================================
+// FORGOT PASSWORD (Hanya untuk Admin/Asesor/Asesi yang lupa password)
+// Asumsi: Ini adalah proses reset (ganti password tanpa login, tapi dengan verifikasi KTP/Email)
+// Karena kita tidak mengimplementasikan email, kita simulasikan proses verifikasi.
+// ====================================================================
 async function forgotPassword(request, reply) {
-  // Logika Forgot Password tidak berubah
+  const client = await getClient();
   try {
-    const { npp, ktp_number, email } = request.body;
+    const { username, email, new_password } = request.body;
 
-    if (!npp || !ktp_number || !email) {
-      return reply.status(400).send({ message: "All fields are required" });
+    if (!username || !email || !new_password) {
+      return reply
+        .status(400)
+        .send({ message: "Username, email, and new password are required" });
     }
 
-    const user = await authModel.findUserByUsername(npp);
-    if (!user) {
-      return reply.status(404).send({ message: "User not found" });
+    const user = await authModel.findUserByUsername(username);
+    if (!user || user.email !== email) {
+      return reply
+        .status(401)
+        .send({ message: "Invalid username or email verification." });
     }
+
+    await client.query("BEGIN");
+
+    // Hash password baru
+    const hashedPassword = await bcrypt.hash(new_password, 10);
+
+    // Update password
+    await authModel.updatePasswordByUsername(client, username, hashedPassword);
+
+    await client.query("COMMIT");
 
     reply.send({
       message:
-        "Jika data ditemukan, link reset password telah dikirimkan ke email Anda.",
+        "Password has been successfully reset. Please log in with your new password.",
     });
   } catch (error) {
+    await client.query("ROLLBACK");
     console.error("Error during forgot password process:", error);
     reply.status(500).send({ message: "Internal server error" });
+  } finally {
+    client.release();
   }
 }
 
 module.exports = {
   register,
+  registerAdminOrAsesor, // Export baru
   login,
   forgotPassword,
 };
@@ -502,10 +671,48 @@ async function createAsesiProfile(client, userId, profileData) {
   return res.rows[0];
 }
 
+// NEW: Create Asesor Profile
+async function createAsesorProfile(client, userId, profileData) {
+  const { full_name, reg_number } = profileData;
+  const res = await client.query(
+    `INSERT INTO asesor_profiles (
+        user_id, full_name, reg_number
+    ) VALUES ($1, $2, $3)
+    RETURNING *`,
+    [userId, full_name, reg_number]
+  );
+  return res.rows[0];
+}
+
+// NEW: Create Admin Profile
+async function createAdminProfile(client, userId, profileData) {
+  const { full_name, position } = profileData;
+  const res = await client.query(
+    `INSERT INTO admin_profiles (
+        user_id, full_name, position
+    ) VALUES ($1, $2, $3)
+    RETURNING *`,
+    [userId, full_name, position]
+  );
+  return res.rows[0];
+}
+
+// NEW: Update password by username (for forgot password/reset)
+async function updatePasswordByUsername(client, username, hashedPassword) {
+  const res = await client.query(
+    "UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE username = $2 RETURNING id",
+    [hashedPassword, username]
+  );
+  return res.rows[0];
+}
+
 module.exports = {
   findUserByUsername,
   createUser,
   createAsesiProfile,
+  createAsesorProfile, // Export baru
+  createAdminProfile, // Export baru
+  updatePasswordByUsername, // Export baru
 };
 ```
 
@@ -516,9 +723,13 @@ module.exports = {
 const authController = require("./authController");
 
 async function authRoutes(fastify, options) {
-  fastify.post("/register", authController.register);
+  // Public
+  fastify.post("/register/asesi", authController.register); // Mengganti /register menjadi /register/asesi
   fastify.post("/login", authController.login);
   fastify.post("/forgot-password", authController.forgotPassword);
+
+  // Restricted Public (Needs ADMIN_SECRET in body)
+  fastify.post("/register/privileged", authController.registerAdminOrAsesor);
 }
 
 module.exports = authRoutes;
@@ -1805,6 +2016,7 @@ const userModel = require("./userModel");
 const bcrypt = require("bcryptjs");
 
 async function getMyProfile(request, reply) {
+  // ... (Tidak berubah, tetapi mungkin perlu diperbarui di masa depan untuk mengambil semua profil tipe)
   try {
     const userId = request.user.id;
     const user = await userModel.findUserById(userId);
@@ -1812,6 +2024,9 @@ async function getMyProfile(request, reply) {
     if (!user) {
       return reply.status(404).send({ message: "User not found" });
     }
+
+    // Hapus data sensitif jika ada sebelum kirim
+    delete user.password;
 
     reply.send({ message: "User profile retrieved successfully", user });
   } catch (error) {
@@ -1832,14 +2047,15 @@ async function changePassword(request, reply) {
     }
 
     // Ambil user dari database untuk memverifikasi password lama
-    const userWithPassword = await userModel.findUserByUsername(
-      request.user.username
+    // Penting: kita harus mengambil password hash dari DB
+    const userWithPassword = await userModel.findUserWithPassword(
+      request.user.id
     );
     if (!userWithPassword || userWithPassword.id !== userId) {
       return reply.status(404).send({ message: "User not found or mismatch" });
     }
 
-    // Verify current password
+    // Verify current password menggunakan Bcrypt
     const isMatch = await bcrypt.compare(
       currentPassword,
       userWithPassword.password
@@ -1875,20 +2091,72 @@ const { query } = require("../../utils/db");
 
 async function findUserById(userId) {
   const res = await query(
-    `SELECT 
+    `
+    SELECT 
         u.id, u.username, u.email, u.role_id, r.name AS role_name,
-        ap.full_name, ap.phone_number, ap.address, ap.ktp_number
+        -- Asesi Data
+        ap.full_name AS asesi_full_name, ap.phone_number, ap.address, ap.ktp_number,
+        -- Asesor Data
+        asr.full_name AS asesor_full_name, asr.reg_number, asr.is_certified,
+        -- Admin Data
+        adm.full_name AS admin_full_name, adm.position
     FROM users u
     LEFT JOIN roles r ON u.role_id = r.id
     LEFT JOIN asesi_profiles ap ON u.id = ap.user_id
-    WHERE u.id = $1`,
+    LEFT JOIN asesor_profiles asr ON u.id = asr.user_id
+    LEFT JOIN admin_profiles adm ON u.id = adm.user_id
+    WHERE u.id = $1
+    `,
+    [userId]
+  );
+
+  const user = res.rows[0];
+  if (!user) return null;
+
+  // Cleanup and map profile data based on role
+  const profile = {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    roleId: user.role_id,
+    roleName: user.role_name,
+    profileData: {},
+  };
+
+  if (user.role_name === "Asesi") {
+    profile.profileData = {
+      fullName: user.asesi_full_name,
+      phoneNumber: user.phone_number,
+      address: user.address,
+      ktpNumber: user.ktp_number,
+    };
+  } else if (user.role_name === "Asesor") {
+    profile.profileData = {
+      fullName: user.asesor_full_name,
+      regNumber: user.reg_number,
+      isCertified: user.is_certified,
+    };
+  } else if (user.role_name === "Admin") {
+    profile.profileData = {
+      fullName: user.admin_full_name,
+      position: user.position,
+    };
+  }
+
+  return profile;
+}
+
+// Digunakan untuk Login dan Change Password (perlu password hash)
+async function findUserWithPassword(userId) {
+  const res = await query(
+    "SELECT id, username, password, email, role_id FROM users WHERE id = $1",
     [userId]
   );
   return res.rows[0];
 }
 
+// Model yang ada di authModel, tapi perlu di sini untuk changePassword
 async function findUserByUsername(username) {
-  // Khusus untuk mendapatkan password saat verifikasi ganti password
   const res = await query(
     "SELECT id, username, password, email, role_id FROM users WHERE username = $1",
     [username]
@@ -1906,6 +2174,7 @@ async function updateUserPassword(userId, hashedPassword) {
 
 module.exports = {
   findUserById,
+  findUserWithPassword, // Export baru
   findUserByUsername,
   updateUserPassword,
 };

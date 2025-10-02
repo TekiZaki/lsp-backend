@@ -3,6 +3,7 @@ const userModel = require("./userModel");
 const bcrypt = require("bcryptjs");
 
 async function getMyProfile(request, reply) {
+  // ... (Tidak berubah, tetapi mungkin perlu diperbarui di masa depan untuk mengambil semua profil tipe)
   try {
     const userId = request.user.id;
     const user = await userModel.findUserById(userId);
@@ -10,6 +11,9 @@ async function getMyProfile(request, reply) {
     if (!user) {
       return reply.status(404).send({ message: "User not found" });
     }
+
+    // Hapus data sensitif jika ada sebelum kirim
+    delete user.password;
 
     reply.send({ message: "User profile retrieved successfully", user });
   } catch (error) {
@@ -30,14 +34,15 @@ async function changePassword(request, reply) {
     }
 
     // Ambil user dari database untuk memverifikasi password lama
-    const userWithPassword = await userModel.findUserByUsername(
-      request.user.username
+    // Penting: kita harus mengambil password hash dari DB
+    const userWithPassword = await userModel.findUserWithPassword(
+      request.user.id
     );
     if (!userWithPassword || userWithPassword.id !== userId) {
       return reply.status(404).send({ message: "User not found or mismatch" });
     }
 
-    // Verify current password
+    // Verify current password menggunakan Bcrypt
     const isMatch = await bcrypt.compare(
       currentPassword,
       userWithPassword.password

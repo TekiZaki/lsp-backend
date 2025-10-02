@@ -30,8 +30,46 @@ async function createAsesiProfile(client, userId, profileData) {
   return res.rows[0];
 }
 
+// NEW: Create Asesor Profile
+async function createAsesorProfile(client, userId, profileData) {
+  const { full_name, reg_number } = profileData;
+  const res = await client.query(
+    `INSERT INTO asesor_profiles (
+        user_id, full_name, reg_number
+    ) VALUES ($1, $2, $3)
+    RETURNING *`,
+    [userId, full_name, reg_number]
+  );
+  return res.rows[0];
+}
+
+// NEW: Create Admin Profile
+async function createAdminProfile(client, userId, profileData) {
+  const { full_name, position } = profileData;
+  const res = await client.query(
+    `INSERT INTO admin_profiles (
+        user_id, full_name, position
+    ) VALUES ($1, $2, $3)
+    RETURNING *`,
+    [userId, full_name, position]
+  );
+  return res.rows[0];
+}
+
+// NEW: Update password by username (for forgot password/reset)
+async function updatePasswordByUsername(client, username, hashedPassword) {
+  const res = await client.query(
+    "UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE username = $2 RETURNING id",
+    [hashedPassword, username]
+  );
+  return res.rows[0];
+}
+
 module.exports = {
   findUserByUsername,
   createUser,
   createAsesiProfile,
+  createAsesorProfile, // Export baru
+  createAdminProfile, // Export baru
+  updatePasswordByUsername, // Export baru
 };
