@@ -11,7 +11,8 @@ const tukRoutes = require("./modules/tuk/TempatUjiKompetensiRoutes");
 const schemeRoutes = require("./modules/scheme/SkemaSertifikasiRoutes");
 const jukRoutes = require("./modules/juk/JadwalUjiKompetensiRoutes");
 const ukRoutes = require("./modules/uk/UnitKompetensiRoutes");
-const asesiRoutes = require("./modules/asesi/asesiRoutes"); // NEW: Impor rute asesi
+const asesiRoutes = require("./modules/asesi/asesiRoutes");
+const pukRoutes = require("./modules/puk/PesertaUjiKompetensiRoutes");
 
 function buildApp(opts = {}) {
   const fastify = Fastify(opts);
@@ -32,7 +33,8 @@ function buildApp(opts = {}) {
   fastify.register(schemeRoutes, { prefix: "/api/schemes" });
   fastify.register(jukRoutes, { prefix: "/api/juks" });
   fastify.register(ukRoutes, { prefix: "/api/units" });
-  fastify.register(asesiRoutes, { prefix: "/api/asesi" }); // NEW: Daftarkan rute asesi
+  fastify.register(asesiRoutes, { prefix: "/api/asesi" });
+  fastify.register(pukRoutes, { prefix: "/api/puks" });
 
   fastify.get("/", async (request, reply) => {
     return { message: "Welcome to LSP Backend API!" };

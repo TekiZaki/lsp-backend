@@ -188,6 +188,18 @@ CREATE TABLE events (
 );
 
 -- ===========================================================
+-- 13. Event Participants (Peserta Uji Kompetensi)
+-- ===========================================================
+CREATE TABLE event_participants (
+    id SERIAL PRIMARY KEY,
+    event_id INT REFERENCES events(id) ON DELETE CASCADE NOT NULL,
+    asesi_id INT REFERENCES asesi_profiles(id) ON DELETE CASCADE NOT NULL,
+    status VARCHAR(50) DEFAULT 'Terdaftar', -- e.g., 'Terdaftar', 'Hadir', 'Tidak Hadir', 'Lulus', 'Tidak Lulus'
+    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (event_id, asesi_id) -- An asesi can only be registered once per event
+);
+
+-- ===========================================================
 -- DEFAULT DATA
 -- ===========================================================
 
@@ -264,3 +276,8 @@ INSERT INTO events (event_name, start_date, end_date, registration_deadline, loc
 VALUES
 ('EUK Desain Grafis 2025', '2025-11-01', '2025-11-03', '2025-10-25', 'Jakarta', 'Jl. Merdeka No. 45', 30, 'Andi Pratama', 'LSP Teknologi Kreatif Indonesia', 'Evaluasi kemampuan desain grafis peserta.', 'Aktif', 1, 1, 3, 'ST-001'),
 ('JUK Web Developer 2025', '2025-11-05', '2025-11-06', '2025-10-28', 'Bandung', 'Jl. Soekarno Hatta No. 10', 25, 'Rahmawati', 'LSP Teknologi Kreatif Indonesia', 'Uji kompetensi pengembangan web.', 'Aktif', 2, 2, 4, 'ST-002');
+
+-- Event Participants (Peserta Uji Kompetensi)
+INSERT INTO event_participants (event_id, asesi_id, status) VALUES
+(1, 1, 'Terdaftar'), -- Asesi Budi Santoso (ID 1) registered for EUK Desain Grafis 2025 (Event ID 1)
+(2, 2, 'Terdaftar'); -- Asesi Siti Aminah (ID 2) registered for JUK Web Developer 2025 (Event ID 2)
