@@ -13,6 +13,10 @@ const jukRoutes = require("./modules/juk/JadwalUjiKompetensiRoutes");
 const ukRoutes = require("./modules/uk/UnitKompetensiRoutes");
 const asesiRoutes = require("./modules/asesi/asesiRoutes");
 const pukRoutes = require("./modules/puk/PesertaUjiKompetensiRoutes");
+const biayaRoutes = require("./modules/biaya/BiayaRoutes");
+const rekeningRoutes = require("./modules/rekening/RekeningRoutes");
+const smsRoutes = require("./modules/sms/SMSRoutes");
+const verifikasiRoutes = require("./modules/verifikasi/VerifikasiRoutes");
 
 function buildApp(opts = {}) {
   const fastify = Fastify(opts);
@@ -35,6 +39,10 @@ function buildApp(opts = {}) {
   fastify.register(ukRoutes, { prefix: "/api/units" });
   fastify.register(asesiRoutes, { prefix: "/api/asesi" });
   fastify.register(pukRoutes, { prefix: "/api/puks" });
+  fastify.register(biayaRoutes, { prefix: "/api/biaya" });
+  fastify.register(rekeningRoutes, { prefix: "/api/rekening" });
+  fastify.register(smsRoutes, { prefix: "/api/sms" });
+  fastify.register(verifikasiRoutes, { prefix: "/api/verifikasi" });
 
   fastify.get("/", async (request, reply) => {
     return { message: "Welcome to LSP Backend API!" };
