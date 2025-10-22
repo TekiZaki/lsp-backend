@@ -4,7 +4,8 @@ const { generateToken } = require("../../utils/jwt");
 const authModel = require("./authModel");
 const globalModel = require("../../models/globalModel");
 const { getClient } = require("../../utils/db");
-const { adminSecret } = require("../../config/jwt"); // NEW: Import admin secret
+const { adminSecret } = require("../../config/jwt");
+const notificationController = require("../notification/NotificationController");
 
 // ====================================================================
 // REGISTRASI ASESI (Public endpoint)
@@ -56,7 +57,7 @@ async function register(request, reply) {
       username,
       hashedPassword,
       email,
-      role_id
+      role_id,
     );
 
     // 5. Buat profil Asesi (Tabel asesi_profiles)
@@ -68,6 +69,14 @@ async function register(request, reply) {
     });
 
     await client.query("COMMIT");
+
+    // NEW: Create a notification for public registration
+    await notificationController.createNotification(
+      "new_user",
+      "Pendaftar Asesi Baru",
+      `Asesi "${full_name}" dengan KTP ${ktp_number} telah mendaftar mandiri.`,
+      newUser.id,
+    );
 
     reply.status(201).send({
       message: "Asesi registered successfully",
@@ -101,8 +110,17 @@ async function registerAdminOrAsesor(request, reply) {
       admin_secret, // Secret key
       // Profile data
       full_name,
-      position, // for Admin
       reg_number, // for Asesor
+      // Admin specific fields (optional)
+      avatar_url,
+      nomor_induk,
+      nomor_lisensi,
+      masa_berlaku,
+      nomor_ktp,
+      ttl,
+      alamat,
+      nomor_hp,
+      pendidikan,
     } = request.body;
 
     // 1. Verifikasi Admin Secret
@@ -119,11 +137,6 @@ async function registerAdminOrAsesor(request, reply) {
     }
 
     // Validasi field spesifik
-    if (role_name === "Admin" && !position) {
-      return reply
-        .status(400)
-        .send({ message: "Position is required for Admin" });
-    }
     if (role_name === "Asesor" && !reg_number) {
       return reply
         .status(400)
@@ -158,14 +171,23 @@ async function registerAdminOrAsesor(request, reply) {
       username,
       hashedPassword,
       email,
-      role_id
+      role_id,
     );
 
     // 6. Buat profil
     if (role_name === "Admin") {
       await authModel.createAdminProfile(client, newUser.id, {
         full_name,
-        position,
+        avatar_url,
+        nomor_induk,
+        nomor_lisensi,
+        masa_berlaku,
+        nomor_ktp,
+        ttl,
+        alamat,
+        nomor_hp,
+        email, // Can reuse the user's email
+        pendidikan,
       });
     } else if (role_name === "Asesor") {
       await authModel.createAsesorProfile(client, newUser.id, {
@@ -190,7 +212,7 @@ async function registerAdminOrAsesor(request, reply) {
     await client.query("ROLLBACK");
     console.error(
       `Error during ${request.body.role_name} registration:`,
-      error
+      error,
     );
     reply.status(500).send({ message: "Internal server error" });
   } finally {

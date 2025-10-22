@@ -4,14 +4,16 @@ const { query } = require("../../utils/db");
 async function findUserById(userId) {
   const res = await query(
     `
-    SELECT 
+    SELECT
         u.id, u.username, u.email, u.role_id, r.name AS role_name,
         -- Asesi Data
         ap.full_name AS asesi_full_name, ap.phone_number, ap.address, ap.ktp_number,
         -- Asesor Data
         asr.full_name AS asesor_full_name, asr.reg_number, asr.is_certified,
         -- Admin Data
-        adm.full_name AS admin_full_name, adm.position
+        adm.full_name AS admin_full_name, adm.avatar_url, adm.nomor_induk,
+        adm.nomor_lisensi, adm.masa_berlaku, adm.nomor_ktp AS admin_nomor_ktp, adm.ttl,
+        adm.alamat AS admin_alamat, adm.nomor_hp, adm.email AS admin_email, adm.pendidikan
     FROM users u
     LEFT JOIN roles r ON u.role_id = r.id
     LEFT JOIN asesi_profiles ap ON u.id = ap.user_id
@@ -19,7 +21,7 @@ async function findUserById(userId) {
     LEFT JOIN admin_profiles adm ON u.id = adm.user_id
     WHERE u.id = $1
     `,
-    [userId]
+    [userId],
   );
 
   const user = res.rows[0];
@@ -51,7 +53,16 @@ async function findUserById(userId) {
   } else if (user.role_name === "Admin") {
     profile.profileData = {
       fullName: user.admin_full_name,
-      position: user.position,
+      avatarUrl: user.avatar_url,
+      nomorInduk: user.nomor_induk,
+      nomorLisensi: user.nomor_lisensi,
+      masaBerlaku: user.masa_berlaku,
+      nomorKTP: user.admin_nomor_ktp,
+      ttl: user.ttl,
+      alamat: user.admin_alamat,
+      nomorHP: user.nomor_hp,
+      email: user.admin_email,
+      pendidikan: user.pendidikan,
     };
   }
 
@@ -62,7 +73,7 @@ async function findUserById(userId) {
 async function findUserWithPassword(userId) {
   const res = await query(
     "SELECT id, username, password, email, role_id FROM users WHERE id = $1",
-    [userId]
+    [userId],
   );
   return res.rows[0];
 }
@@ -71,7 +82,7 @@ async function findUserWithPassword(userId) {
 async function findUserByUsername(username) {
   const res = await query(
     "SELECT id, username, password, email, role_id FROM users WHERE username = $1",
-    [username]
+    [username],
   );
   return res.rows[0];
 }
@@ -79,7 +90,7 @@ async function findUserByUsername(username) {
 async function updateUserPassword(userId, hashedPassword) {
   const res = await query(
     "UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id",
-    [hashedPassword, userId]
+    [hashedPassword, userId],
   );
   return res.rows[0];
 }

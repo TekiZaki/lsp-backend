@@ -4,5 +4,5 @@ require("dotenv").config();
 module.exports = {
   secret: process.env.JWT_SECRET,
   expiresIn: process.env.JWT_EXPIRES_IN || "1h",
-  adminSecret: process.env.ADMIN_SECRET, // NEW: Secret key for admin registration
+  adminSecret: process.env.ADMIN_SECRET,
 };

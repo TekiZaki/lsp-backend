@@ -1,4 +1,4 @@
-// server.js (UPDATED FOR NETWORK ACCESS)
+// server.js
 require("dotenv").config();
 const os = require("os");
 const buildApp = require("./app");

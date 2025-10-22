@@ -3,6 +3,7 @@ const asesiModel = require("./asesiModel");
 const globalModel = require("../../models/globalModel");
 const { getClient } = require("../../utils/db");
 const { mapToCamelCase, mapToSnakeCase } = require("../../utils/dataMapper");
+const notificationController = require("../notification/NotificationController");
 
 // Helper untuk mengambil nama skema
 async function getSchemeName(schemeId) {
@@ -67,7 +68,7 @@ async function getAllAsesi(request, reply) {
           ...asesi,
           schemeName,
         };
-      })
+      }),
     );
 
     reply.send(mapToCamelCase(asesiWithSchemeNames));
@@ -93,7 +94,7 @@ async function getAsesiById(request, reply) {
       mapToCamelCase({
         ...asesi,
         schemeName,
-      })
+      }),
     );
   } catch (error) {
     console.error("Error getting asesi by ID:", error);
@@ -141,9 +142,9 @@ async function createAsesi(request, reply) {
     const newUser = await asesiModel.createUserForAsesi(
       client,
       username,
-      password, // Asumsi password sudah di-hash di model atau akan di-hash di sini
+      password,
       email,
-      role_id
+      role_id,
     );
 
     // 3. Buat profil Asesi
@@ -153,10 +154,18 @@ async function createAsesi(request, reply) {
       {
         ...asesiData,
         user_id: newUser.id, // Pastikan user_id terkait dengan profil
-      }
+      },
     );
 
     await client.query("COMMIT");
+
+    // NEW: Create a notification for the new asesi
+    await notificationController.createNotification(
+      "new_user",
+      "Asesi Baru Terdaftar (Admin)",
+      `Asesi "${full_name}" (Reg No: ${registration_number}) telah didaftarkan secara manual oleh Admin.`,
+      newUser.id, // Optional: link to the new user's ID
+    );
 
     reply.status(201).send(
       mapToCamelCase({
@@ -167,7 +176,7 @@ async function createAsesi(request, reply) {
           email: newUser.email,
         },
         asesi: newAsesi,
-      })
+      }),
     );
   } catch (error) {
     await client.query("ROLLBACK");
@@ -196,13 +205,21 @@ async function updateAsesi(request, reply) {
       return reply.status(404).send({ message: "Asesi not found" });
     }
 
+    // NEW: Create a notification for asesi update
+    await notificationController.createNotification(
+      "asesi_update",
+      "Profil Asesi Diperbarui",
+      `Profil asesi "${updatedAsesi.full_name}" (ID: ${updatedAsesi.id}) telah diperbarui.`,
+      updatedAsesi.user_id,
+    );
+
     const schemeName = await getSchemeName(updatedAsesi.scheme_id);
 
     reply.send(
       mapToCamelCase({
         message: "Asesi updated successfully",
         asesi: { ...updatedAsesi, schemeName },
-      })
+      }),
     );
   } catch (error) {
     console.error("Error updating asesi:", error);
@@ -230,6 +247,7 @@ async function deleteAsesi(request, reply) {
       return reply.status(404).send({ message: "Asesi not found" });
     }
     const userId = asesiProfile.user_id;
+    const asesiFullName = asesiProfile.full_name; // Get name for notification
 
     // Hapus asesi dari asesi_profiles
     const deletedAsesi = await asesiModel.deleteAsesi(client, id);
@@ -239,11 +257,19 @@ async function deleteAsesi(request, reply) {
 
     await client.query("COMMIT");
 
+    // NEW: Create a notification for asesi deletion
+    await notificationController.createNotification(
+      "asesi_deletion",
+      "Asesi Dihapus",
+      `Asesi "${asesiFullName}" (ID: ${id}) dan user terkait telah dihapus.`,
+      null, // Not user-specific anymore
+    );
+
     reply.send(
       mapToCamelCase({
         message: "Asesi and associated user deleted successfully",
         deletedId: deletedAsesi.id,
-      })
+      }),
     );
   } catch (error) {
     await client.query("ROLLBACK");
@@ -266,8 +292,16 @@ async function verifyAsesi(request, reply) {
       return reply.status(404).send({ message: "Asesi not found" });
     }
 
+    // NEW: Create a notification for asesi verification
+    await notificationController.createNotification(
+      "asesi_verification",
+      "Asesi Terverifikasi",
+      `Asesi "${verifiedAsesi.full_name}" (ID: ${verifiedAsesi.id}) telah diverifikasi.`,
+      verifiedAsesi.user_id,
+    );
+
     reply.send(
-      mapToCamelCase({ message: "Asesi verified successfully", verifiedAsesi })
+      mapToCamelCase({ message: "Asesi verified successfully", verifiedAsesi }),
     );
   } catch (error) {
     console.error("Error verifying asesi:", error);
@@ -287,8 +321,16 @@ async function blockAsesi(request, reply) {
       return reply.status(404).send({ message: "Asesi not found" });
     }
 
+    // NEW: Create a notification for asesi blocking
+    await notificationController.createNotification(
+      "asesi_blocked",
+      "Asesi Diblokir",
+      `Asesi "${blockedAsesi.full_name}" (ID: ${blockedAsesi.id}) telah diblokir.`,
+      blockedAsesi.user_id,
+    );
+
     reply.send(
-      mapToCamelCase({ message: "Asesi blocked successfully", blockedAsesi })
+      mapToCamelCase({ message: "Asesi blocked successfully", blockedAsesi }),
     );
   } catch (error) {
     console.error("Error blocking asesi:", error);
@@ -308,11 +350,19 @@ async function unblockAsesi(request, reply) {
       return reply.status(404).send({ message: "Asesi not found" });
     }
 
+    // NEW: Create a notification for asesi unblocking
+    await notificationController.createNotification(
+      "asesi_unblocked",
+      "Blokir Asesi Dicabut",
+      `Blokir untuk asesi "${unblockedAsesi.full_name}" (ID: ${unblockedAsesi.id}) telah dicabut.`,
+      unblockedAsesi.user_id,
+    );
+
     reply.send(
       mapToCamelCase({
         message: "Asesi unblocked successfully",
         unblockedAsesi,
-      })
+      }),
     );
   } catch (error) {
     console.error("Error unblocking asesi:", error);
@@ -363,9 +413,8 @@ async function importAsesi(request, reply) {
       // Ambil ID skema berdasarkan kode skema
       let scheme_id = null;
       if (scheme_code) {
-        const scheme = await asesiModel.getCertificationSchemeByCode(
-          scheme_code
-        );
+        const scheme =
+          await asesiModel.getCertificationSchemeByCode(scheme_code);
         if (scheme) {
           scheme_id = scheme.id;
         } else {
@@ -377,8 +426,15 @@ async function importAsesi(request, reply) {
       if (!username || !email || !full_name || !registration_number) {
         console.warn(
           `Skipping row due to missing essential fields: ${JSON.stringify(
-            data
-          )}`
+            data,
+          )}`,
+        );
+        // NEW: Create an error notification for skipped rows
+        await notificationController.createNotification(
+          "import_warning",
+          "Data Asesi Terlewat (Impor)",
+          `Baris data asesi saat impor terlewat karena field penting tidak lengkap: ${JSON.stringify(data)}.`,
+          null,
         );
         continue;
       }
@@ -390,9 +446,8 @@ async function importAsesi(request, reply) {
       if (user) {
         // User sudah ada, update profil asesi jika perlu
         newUserId = user.id;
-        const existingAsesiProfile = await asesiModel.findAsesiProfileByUserId(
-          newUserId
-        );
+        const existingAsesiProfile =
+          await asesiModel.findAsesiProfileByUserId(newUserId);
         if (existingAsesiProfile) {
           await asesiModel.updateAsesi(existingAsesiProfile.id, {
             full_name,
@@ -410,6 +465,13 @@ async function importAsesi(request, reply) {
             // status dan is_blocked mungkin tidak diupdate otomatis saat impor, kecuali ada kolom eksplisit di Excel
           });
           importedAsesi.push({ ...existingAsesiProfile, ...asesiData });
+          // NEW: Create notification for update via import
+          await notificationController.createNotification(
+            "asesi_update",
+            "Profil Asesi Diperbarui (Impor)",
+            `Profil asesi "${full_name}" (Reg No: ${registration_number}) diperbarui melalui impor data.`,
+            newUserId,
+          );
         } else {
           // User ada tapi profil asesi tidak ada, buat profil asesi baru
           const newAsesiProfile = await asesiModel.createAsesiProfileWithUserId(
@@ -428,9 +490,16 @@ async function importAsesi(request, reply) {
               documents_status,
               certificate_status,
               photo_url,
-            }
+            },
           );
           importedAsesi.push(newAsesiProfile);
+          // NEW: Create notification for new asesi profile
+          await notificationController.createNotification(
+            "new_user_profile",
+            "Profil Asesi Dibuat (Impor)",
+            `Profil asesi baru untuk user "${username}" (Reg No: ${registration_number}) dibuat melalui impor.`,
+            newUserId,
+          );
         }
       } else {
         // User belum ada, buat user dan profil asesi baru
@@ -439,7 +508,7 @@ async function importAsesi(request, reply) {
           username,
           password || "defaultpassword", // Gunakan password default jika tidak ada di Excel
           email,
-          role_id
+          role_id,
         );
         newUserId = newUser.id;
 
@@ -459,13 +528,28 @@ async function importAsesi(request, reply) {
             documents_status,
             certificate_status,
             photo_url,
-          }
+          },
         );
         importedAsesi.push(newAsesiProfile);
+        // NEW: Create notification for new user and asesi via import
+        await notificationController.createNotification(
+          "new_user_imported",
+          "Asesi Baru Terdaftar (Impor)",
+          `Asesi "${full_name}" (Reg No: ${registration_number}) dan user baru dibuat melalui impor data.`,
+          newUserId,
+        );
       }
     }
 
     await client.query("COMMIT");
+
+    // NEW: Create a summary notification for the import
+    await notificationController.createNotification(
+      "import_success",
+      "Impor Asesi Berhasil",
+      `${importedAsesi.length} Asesi berhasil diimpor/diperbarui.`,
+      null,
+    );
 
     reply.status(200).send({
       message: `${importedAsesi.length} Asesi imported/updated successfully`,
@@ -474,6 +558,13 @@ async function importAsesi(request, reply) {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Error during asesi import:", error);
+    // NEW: Create an error notification for failed import
+    await notificationController.createNotification(
+      "import_failure",
+      "Impor Asesi Gagal",
+      `Proses impor data asesi gagal total: ${error.message}.`,
+      null,
+    );
     reply.status(500).send({ message: "Internal server error" });
   } finally {
     client.release();
@@ -492,5 +583,5 @@ module.exports = {
   verifyAsesi,
   blockAsesi,
   unblockAsesi,
-  importAsesi, // Export baru
+  importAsesi,
 };

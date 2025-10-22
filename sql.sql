@@ -91,7 +91,16 @@ CREATE TABLE admin_profiles (
     id SERIAL PRIMARY KEY,
     user_id INT UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     full_name VARCHAR(100) NOT NULL,
-    position VARCHAR(100),
+    avatar_url TEXT,
+    nomor_induk VARCHAR(50),
+    nomor_lisensi VARCHAR(50),
+    masa_berlaku VARCHAR(50),
+    nomor_ktp VARCHAR(50) UNIQUE,
+    ttl VARCHAR(100), -- Tempat, Tanggal Lahir
+    alamat TEXT,
+    nomor_hp VARCHAR(20),
+    email VARCHAR(100), -- Redundant with users.email, but included for profile completeness
+    pendidikan VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -276,6 +285,36 @@ CREATE TABLE jadwal_asesmen (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ===========================================================
+-- 15. Konten Website
+-- ===========================================================
+CREATE TABLE website_content (
+    id SERIAL PRIMARY KEY,
+    thumbnail_url TEXT,
+    title VARCHAR(255) NOT NULL,
+    subtitle VARCHAR(255),
+    publish_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    description TEXT,
+    category VARCHAR(50) NOT NULL, -- e.g., 'portfolio', 'halaman', 'berita'
+    slate_content JSONB, -- To store rich text editor content (JSON)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ===========================================================
+-- 16. Notifikasi
+-- ===========================================================
+
+-- Table for Notifications (server-generated, not from a client form)
+CREATE TABLE notifications (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE, -- Optional, if notifications are user-specific
+    type VARCHAR(50) NOT NULL, -- e.g., 'new_user', 'document_upload', 'payment_success', 'error'
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_read BOOLEAN DEFAULT FALSE
+);
 
 -- ===========================================================
 -- DEFAULT DATA
@@ -389,11 +428,11 @@ INSERT INTO rekening (bank, nomor, atas_nama, nama_lsp) VALUES
 
 -- SMS Masuk (NEW DUMMY DATA)
 INSERT INTO sms_masuk (tanggal, jam, isi_pesan, status) VALUES
-('2018-08-11', '15:51:20', 'Bonus Ajakan Teman Sudah Kami Proseskan. Segera Cek ID Nya Di Link Terbaru Kami Yang Mudah Menang Nya Boss pelangiqqasia.com / pelangiqq.vegas', 'Masuk'),
-('2018-08-08', '10:41:07', 'PelangiQQ Bagi2 BONUS Boss !! Cek User ID Anda Sekarang dan Bagikan Pesan ini ke Teman2. Claim Bonus di PelangiQQ.Vegas', 'Masuk'),
-('2018-08-05', '15:37:47', 'KABAR GEMBIRA! isi pulsa BERAPAPUN langsung DAPAT PAKET 1GB 1 hari. Berlaku hanya 2 hari! Info 123.', 'Masuk'),
-('2018-08-04', '07:44:28', 'KABAR GEMBIRA! isi pulsa BERAPAPUN langsung DAPAT PAKET 1GB 1 hari. Berlaku hanya 2 hari! Info 123.', 'Masuk'),
-('2018-08-03', '21:05:10', 'KABAR GEMBIRA! isi pulsa BERAPAPUN langsung DAPAT PAKET 1GB 1 hari. Berlaku hanya 2 hari! Info 123.', 'Masuk');
+('2024-10-10', '09:15:00', 'Yth. LSP, Kami telah menerima permohonan lisensi TUK baru dari TUK Mandiri Jaya. Mohon ditindaklanjuti. - BNSP', 'Masuk'),
+('2024-10-09', '14:30:10', 'Selamat! Sertifikat Asesor a.n. Andi Pratama telah selesai dicetak. Mohon diambil di kantor LSP. - Admin LSP', 'Masuk'),
+('2024-10-08', '11:05:45', 'Reminder: Batas waktu verifikasi dokumen asesi untuk batch November adalah 2024-10-15. Harap segera periksa dashboard. - Sistem Otomatis LSP', 'Masuk'),
+('2024-10-07', '16:55:20', 'Laporan keuangan Q3 2024 LSP sudah siap. Silakan cek email Anda untuk detailnya. - Divisi Keuangan', 'Masuk'),
+('2024-10-06', '08:00:30', 'Info Penting: Ada perubahan jadwal untuk pelaksanaan UK Skema Web Developer. Cek notifikasi di portal. - Admin UK', 'Masuk');
 
 -- SMS Keluar (NEW DUMMY DATA)
 INSERT INTO sms_keluar (tanggal, jam, penerima_nama, penerima_nomor, isi_pesan, status) VALUES
@@ -419,3 +458,18 @@ INSERT INTO dokumen_asesi (asesi_id, nama, no_dokumen, tanggal, file_url) VALUES
 INSERT INTO jadwal_asesmen (scheme_id, nama, deskripsi, status) VALUES
 (4, 'Jadwal Pagi - 10 Oktober 2025', 'Uji kompetensi akan dilaksanakan di TUK Pindad pukul 08:00 WIB.', 'tersedia'),
 (4, 'Jadwal Siang - 10 Oktober 2025', 'Uji kompetensi akan dilaksanakan di TUK Pindad pukul 13:00 WIB.', 'tersedia');
+
+-- Default Konten Website (Example from silsp.md)
+INSERT INTO website_content (thumbnail_url, title, subtitle, publish_date, description, category, slate_content) VALUES
+('https://placehold.co/100x100/3b82f6/ffffff?text=Batik', 'Nyolet', 'Nyolet', '2018-05-06 16:05:00', 'Teknik pewarnaan batik dengan kuas', 'portfolio', '[{"type":"paragraph","children":[{"text":"asdasdasdasd","bold":true}]},{"type":"paragraph","children":[{"text":"asdasdasdasd","italic":true}]},{"type":"paragraph","children":[{"text":"asdasd","underline":true}]},{"type":"heading-one","children":[{"text":"asda"}]},{"type":"heading-two","children":[{"text":"sda"}]},{"type":"paragraph","children":[{"text":"sda"}]},{"type":"block-quote","children":[{"text":"sdasdasd"}]},{"type":"numbered-list","children":[{"type":"list-item","children":[{"text":"asdasd"}]},{"type":"list-item","children":[{"text":"asdasd"}]},{"type":"list-item","children":[{"text":"asd"}]}]}]'),
+('https://placehold.co/100x100/10b981/ffffff?text=LSP', 'Tentang Kami', 'Profil', '2020-01-15 10:30:00', 'Sejarah singkat dan visi misi Lembaga Sertifikasi Profesi.', 'halaman', '[{"type":"paragraph","children":[{"text":"asdasdasdasd","bold":true}]},{"type":"paragraph","children":[{"text":"asdasdasdasd","italic":true}]},{"type":"paragraph","children":[{"text":"asdasd","underline":true}]},{"type":"heading-one","children":[{"text":"asda"}]},{"type":"heading-two","children":[{"text":"sda"}]},{"type":"paragraph","children":[{"text":"sda"}]},{"type":"block-quote","children":[{"text":"sdasdasd"}]},{"type":"numbered-list","children":[{"type":"list-item","children":[{"text":"asdasd"}]},{"type":"list-item","children":[{"text":"asdasd"}]},{"type":"list-item","children":[{"text":"asd"}]}]}]'),
+('https://placehold.co/100x100/ef4444/ffffff?text=Info', 'Jadwal Uji Kompetensi Terbaru', 'Berita', '2025-10-01 08:00:00', 'Pendaftaran untuk uji kompetensi gelombang berikutnya telah dibuka.', 'berita', '[{"type":"paragraph","children":[{"text":"asdasdasdasd","bold":true}]},{"type":"paragraph","children":[{"text":"asdasdasdasd","italic":true}]},{"type":"paragraph","children":[{"text":"asdasd","underline":true}]},{"type":"heading-one","children":[{"text":"asda"}]},{"type":"heading-two","children":[{"text":"sda"}]},{"type":"paragraph","children":[{"text":"sda"}]},{"type":"block-quote","children":[{"text":"sdasdasd"}]},{"type":"numbered-list","children":[{"type":"list-item","children":[{"text":"asdasd"}]},{"type":"list-item","children":[{"text":"asdasd"}]},{"type":"list-item","children":[{"text":"asd"}]}]}]');
+
+-- Dummy Notifications
+INSERT INTO notifications (type, title, message, created_at, is_read) VALUES
+('new_user', 'Pendaftar Baru', 'Asesi "Budi Santoso" telah mendaftar pada skema "PEMBUATAN BATIK TULIS".', CURRENT_TIMESTAMP - INTERVAL '2 minutes', FALSE),
+('document_upload', 'Dokumen Diunggah', 'Asesi "Ani Wardani" telah mengunggah dokumen persyaratan baru.', CURRENT_TIMESTAMP - INTERVAL '1 hour', FALSE),
+('payment_success', 'Pembayaran Divalidasi', 'Pembayaran untuk asesi "Budi Santoso" telah berhasil divalidasi.', CURRENT_TIMESTAMP - INTERVAL '3 hours', FALSE),
+('error', 'Impor Gagal', 'Proses impor data asesi dari file "data_asesi.xlsx" gagal. Silakan coba lagi.', CURRENT_TIMESTAMP - INTERVAL '1 day', TRUE),
+('new_user', 'Pendaftar Baru', 'Asesi "Citra Lestari" telah mendaftar pada skema "JUNIOR WEB DEVELOPER".', CURRENT_TIMESTAMP - INTERVAL '1 day', TRUE),
+('document_upload', 'Dokumen Disetujui', 'Semua dokumen untuk "Ani Wardani" telah disetujui.', CURRENT_TIMESTAMP - INTERVAL '2 days', TRUE);

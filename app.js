@@ -1,4 +1,4 @@
-// lsp-backend/app.js (FINAL UPDATED)
+// lsp-backend/app.js
 const Fastify = require("fastify");
 const cors = require("@fastify/cors");
 
@@ -17,6 +17,8 @@ const biayaRoutes = require("./modules/biaya/BiayaRoutes");
 const rekeningRoutes = require("./modules/rekening/RekeningRoutes");
 const smsRoutes = require("./modules/sms/SMSRoutes");
 const verifikasiRoutes = require("./modules/verifikasi/VerifikasiRoutes");
+const websiteContentRoutes = require("./modules/websiteContent/WebsiteContentRoutes");
+const notificationRoutes = require("./modules/notification/NotificationRoutes");
 
 function buildApp(opts = {}) {
   const fastify = Fastify(opts);
@@ -43,6 +45,8 @@ function buildApp(opts = {}) {
   fastify.register(rekeningRoutes, { prefix: "/api/rekening" });
   fastify.register(smsRoutes, { prefix: "/api/sms" });
   fastify.register(verifikasiRoutes, { prefix: "/api/verifikasi" });
+  fastify.register(websiteContentRoutes, { prefix: "/api/website-content" });
+  fastify.register(notificationRoutes, { prefix: "/api/notifications" });
 
   fastify.get("/", async (request, reply) => {
     return { message: "Welcome to LSP Backend API!" };

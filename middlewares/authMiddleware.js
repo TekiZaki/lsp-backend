@@ -19,7 +19,6 @@ const authenticate = async (request, reply) => {
     }
 
     // Simpan data user yang terautentikasi ke objek request
-    // Fastify tidak secara otomatis memiliki `request.user`, jadi kita bisa menambahkannya
     request.user = decoded;
   } catch (error) {
     console.error("Authentication error:", error);
