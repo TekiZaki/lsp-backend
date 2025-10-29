@@ -5,7 +5,7 @@ async function findUserById(userId) {
   const res = await query(
     `
     SELECT
-        u.id, u.username, u.email, u.role_id, r.name AS role_name,
+        up.id, up.username, up.email, up.role_id, r.name AS role_name, -- Changed from u. to up.
         -- Asesi Data
         ap.full_name AS asesi_full_name, ap.phone_number, ap.address, ap.ktp_number,
         -- Asesor Data
@@ -14,12 +14,12 @@ async function findUserById(userId) {
         adm.full_name AS admin_full_name, adm.avatar_url, adm.nomor_induk,
         adm.nomor_lisensi, adm.masa_berlaku, adm.nomor_ktp AS admin_nomor_ktp, adm.ttl,
         adm.alamat AS admin_alamat, adm.nomor_hp, adm.email AS admin_email, adm.pendidikan
-    FROM users u
-    LEFT JOIN roles r ON u.role_id = r.id
-    LEFT JOIN asesi_profiles ap ON u.id = ap.user_id
-    LEFT JOIN asesor_profiles asr ON u.id = asr.user_id
-    LEFT JOIN admin_profiles adm ON u.id = adm.user_id
-    WHERE u.id = $1
+    FROM user_profiles up -- Changed from users u to user_profiles up
+    LEFT JOIN roles r ON up.role_id = r.id
+    LEFT JOIN asesi_profiles ap ON up.id = ap.user_id
+    LEFT JOIN asesor_profiles asr ON up.id = asr.user_id
+    LEFT JOIN admin_profiles adm ON up.id = adm.user_id
+    WHERE up.id = $1 -- Changed from u.id to up.id
     `,
     [userId],
   );
@@ -71,8 +71,9 @@ async function findUserById(userId) {
 
 // Digunakan untuk Login dan Change Password (perlu password hash)
 async function findUserWithPassword(userId) {
+  // Changed from 'users' to 'user_profiles'
   const res = await query(
-    "SELECT id, username, password, email, role_id FROM users WHERE id = $1",
+    "SELECT id, username, password, email, role_id FROM user_profiles WHERE id = $1",
     [userId],
   );
   return res.rows[0];
@@ -80,16 +81,18 @@ async function findUserWithPassword(userId) {
 
 // Model yang ada di authModel, tapi perlu di sini untuk changePassword
 async function findUserByUsername(username) {
+  // Changed from 'users' to 'user_profiles'
   const res = await query(
-    "SELECT id, username, password, email, role_id FROM users WHERE username = $1",
+    "SELECT id, username, password, email, role_id FROM user_profiles WHERE username = $1",
     [username],
   );
   return res.rows[0];
 }
 
 async function updateUserPassword(userId, hashedPassword) {
+  // Changed from 'users' to 'user_profiles'
   const res = await query(
-    "UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id",
+    "UPDATE user_profiles SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id",
     [hashedPassword, userId],
   );
   return res.rows[0];
@@ -97,7 +100,7 @@ async function updateUserPassword(userId, hashedPassword) {
 
 module.exports = {
   findUserById,
-  findUserWithPassword, // Export baru
+  findUserWithPassword,
   findUserByUsername,
   updateUserPassword,
 };

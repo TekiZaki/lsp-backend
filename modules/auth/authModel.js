@@ -2,16 +2,21 @@
 const { query } = require("../../utils/db");
 
 async function findUserByUsername(username) {
+  // Changed from 'users' to 'user_profiles'
+  // Added 'password' to the SELECT, assuming it's stored in user_profiles for this backend's direct login.
   const res = await query(
-    "SELECT id, username, password, email, role_id FROM users WHERE username = $1",
+    "SELECT id, username, password, email, role_id FROM user_profiles WHERE username = $1",
     [username],
   );
   return res.rows[0];
 }
 
 async function createUser(client, username, hashedPassword, email, role_id) {
+  // Changed from 'users' to 'user_profiles'
+  // Added 'auth_id' as NULL for now, assuming direct password management by the app.
+  // In a real Supabase setup, `auth_id` would come from Supabase's own auth service.
   const res = await client.query(
-    "INSERT INTO users (username, password, email, role_id) VALUES ($1, $2, $3, $4) RETURNING id, username, email, role_id",
+    "INSERT INTO user_profiles (username, password, email, role_id, auth_id) VALUES ($1, $2, $3, $4, NULL) RETURNING id, username, email, role_id",
     [username, hashedPassword, email, role_id],
   );
   return res.rows[0];
@@ -22,8 +27,8 @@ async function createAsesiProfile(client, userId, profileData) {
 
   const res = await client.query(
     `INSERT INTO asesi_profiles (
-        user_id, full_name, phone_number, address, ktp_number
-    ) VALUES ($1, $2, $3, $4, $5)
+        user_id, full_name, phone_number, address, ktp_number, registration_number
+    ) VALUES ($1, $2, $3, $4, $5, gen_random_uuid()::text) -- Generate a unique registration_number if not provided
     RETURNING *`,
     [userId, full_name, phone_number, address, ktp_number],
   );
@@ -84,8 +89,9 @@ async function createAdminProfile(client, userId, profileData) {
 
 // NEW: Update password by username (for forgot password/reset)
 async function updatePasswordByUsername(client, username, hashedPassword) {
+  // Changed from 'users' to 'user_profiles'
   const res = await client.query(
-    "UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE username = $2 RETURNING id",
+    "UPDATE user_profiles SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE username = $2 RETURNING id",
     [hashedPassword, username],
   );
   return res.rows[0];
@@ -95,7 +101,7 @@ module.exports = {
   findUserByUsername,
   createUser,
   createAsesiProfile,
-  createAsesorProfile, // Export baru
-  createAdminProfile, // Export baru
-  updatePasswordByUsername, // Export baru
+  createAsesorProfile,
+  createAdminProfile,
+  updatePasswordByUsername,
 };

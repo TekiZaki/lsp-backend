@@ -7,9 +7,10 @@ const { mapToCamelCase, mapToSnakeCase } = require("../../utils/dataMapper");
 // AUTH & USER RELATED (diperlukan untuk manajemen asesi)
 // ===============================================
 async function findUserByUsername(username) {
+  // Changed from 'users' to 'user_profiles'
   const res = await query(
-    "SELECT id, username, password, email, role_id FROM users WHERE username = $1",
-    [username]
+    "SELECT id, username, password, email, role_id FROM user_profiles WHERE username = $1",
+    [username],
   );
   return res.rows[0];
 }
@@ -26,20 +27,22 @@ async function createUserForAsesi(
   username,
   plainPassword,
   email,
-  role_id
+  role_id,
 ) {
   const hashedPassword = await bcrypt.hash(plainPassword, 10);
+  // Changed from 'users' to 'user_profiles'
   const res = await client.query(
-    "INSERT INTO users (username, password, email, role_id) VALUES ($1, $2, $3, $4) RETURNING id, username, email, role_id",
-    [username, hashedPassword, email, role_id]
+    "INSERT INTO user_profiles (username, password, email, role_id, auth_id) VALUES ($1, $2, $3, $4, NULL) RETURNING id, username, email, role_id",
+    [username, hashedPassword, email, role_id],
   );
   return res.rows[0];
 }
 
 async function deleteUser(client, userId) {
+  // Changed from 'users' to 'user_profiles'
   const res = await client.query(
-    "DELETE FROM users WHERE id = $1 RETURNING id",
-    [userId]
+    "DELETE FROM user_profiles WHERE id = $1 RETURNING id",
+    [userId],
   );
   return res.rows[0];
 }
@@ -50,7 +53,7 @@ async function deleteUser(client, userId) {
 async function getCertificationSchemeById(schemeId) {
   const res = await query(
     "SELECT id, name, code FROM certification_schemes WHERE id = $1",
-    [schemeId]
+    [schemeId],
   );
   return res.rows[0];
 }
@@ -58,7 +61,7 @@ async function getCertificationSchemeById(schemeId) {
 async function getCertificationSchemeByCode(schemeCode) {
   const res = await query(
     "SELECT id, name, code FROM certification_schemes WHERE code = $1",
-    [schemeCode]
+    [schemeCode],
   );
   return res.rows[0];
 }
@@ -73,11 +76,11 @@ async function findAllAsesi(statusFilter, isBlockedFilter, searchTerm) {
             ap.id, ap.user_id, ap.full_name, ap.phone_number, ap.address, ap.ktp_number,
             ap.registration_number, ap.education, ap.status, ap.is_blocked,
             ap.scheme_id, ap.assessment_date, ap.plotting_asesor, ap.documents_status,
-            ap.certificate_status, ap.photo_url,
+            ap.certificate_status, ap.payment_status, ap.photo_url, -- Added payment_status
             cs.name AS scheme_name, cs.code AS scheme_code,
-            u.username, u.email
+            up.username, up.email -- Changed from u.username, u.email to up.username, up.email
         FROM asesi_profiles ap
-        JOIN users u ON ap.user_id = u.id
+        JOIN user_profiles up ON ap.user_id = up.id -- Changed from users u to user_profiles up
         LEFT JOIN certification_schemes cs ON ap.scheme_id = cs.id
         WHERE 1=1
     `;
@@ -96,8 +99,8 @@ async function findAllAsesi(statusFilter, isBlockedFilter, searchTerm) {
     queryText += ` AND (
             ap.full_name ILIKE $${paramIndex} OR
             ap.registration_number ILIKE $${paramIndex} OR
-            u.username ILIKE $${paramIndex} OR
-            u.email ILIKE $${paramIndex} OR
+            up.username ILIKE $${paramIndex} OR -- Changed from u.username to up.username
+            up.email ILIKE $${paramIndex} OR    -- Changed from u.email to up.email
             cs.name ILIKE $${paramIndex}
         )`;
     queryParams.push(`%${searchTerm}%`);
@@ -117,15 +120,15 @@ async function findAsesiById(id) {
             ap.id, ap.user_id, ap.full_name, ap.phone_number, ap.address, ap.ktp_number,
             ap.registration_number, ap.education, ap.status, ap.is_blocked,
             ap.scheme_id, ap.assessment_date, ap.plotting_asesor, ap.documents_status,
-            ap.certificate_status, ap.photo_url,
+            ap.certificate_status, ap.payment_status, ap.photo_url, -- Added payment_status
             cs.name AS scheme_name, cs.code AS scheme_code,
-            u.username, u.email
+            up.username, up.email -- Changed from u.username, u.email to up.username, up.email
         FROM asesi_profiles ap
-        JOIN users u ON ap.user_id = u.id
+        JOIN user_profiles up ON ap.user_id = up.id -- Changed from users u to user_profiles up
         LEFT JOIN certification_schemes cs ON ap.scheme_id = cs.id
         WHERE ap.id = $1
     `,
-    [id]
+    [id],
   );
   return res.rows[0];
 }
@@ -136,7 +139,7 @@ async function createAsesiProfileWithUserId(client, userId, profileData) {
     phone_number,
     address,
     ktp_number,
-    registration_number,
+    registration_number, // Ensure this is provided
     education,
     status,
     is_blocked,
@@ -145,6 +148,7 @@ async function createAsesiProfileWithUserId(client, userId, profileData) {
     plotting_asesor,
     documents_status,
     certificate_status,
+    payment_status, // Added payment_status
     photo_url,
   } = profileData;
 
@@ -152,8 +156,8 @@ async function createAsesiProfileWithUserId(client, userId, profileData) {
     `INSERT INTO asesi_profiles (
             user_id, full_name, phone_number, address, ktp_number, registration_number,
             education, status, is_blocked, scheme_id, assessment_date, plotting_asesor,
-            documents_status, certificate_status, photo_url
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            documents_status, certificate_status, payment_status, photo_url
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING *`,
     [
       userId,
@@ -161,7 +165,7 @@ async function createAsesiProfileWithUserId(client, userId, profileData) {
       phone_number,
       address,
       ktp_number,
-      registration_number,
+      registration_number, // Make sure this value exists
       education,
       status || "belum terverifikasi", // Default status
       is_blocked || false, // Default block status
@@ -170,8 +174,9 @@ async function createAsesiProfileWithUserId(client, userId, profileData) {
       plotting_asesor,
       documents_status || "Belum Lengkap",
       certificate_status || "Belum Dicetak",
+      payment_status || "belum divalidasi", // Default payment status
       photo_url,
-    ]
+    ],
   );
   return res.rows[0];
 }
@@ -188,7 +193,7 @@ async function updateAsesi(id, updateData) {
     .join(", ");
   const res = await query(
     `UPDATE asesi_profiles SET ${setClauses}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
-    [id, ...values]
+    [id, ...values],
   );
   return res.rows[0];
 }
@@ -196,7 +201,7 @@ async function updateAsesi(id, updateData) {
 async function deleteAsesi(client, id) {
   const res = await client.query(
     "DELETE FROM asesi_profiles WHERE id = $1 RETURNING id, user_id",
-    [id]
+    [id],
   );
   return res.rows[0];
 }
@@ -205,15 +210,8 @@ async function deleteAsesi(client, id) {
 // GEOGRAPHICAL DATA (For Public Display)
 // ===============================================
 
-// Contoh simulasi untuk mendapatkan data provinsi dan kota
-// Di aplikasi nyata, ini akan melibatkan tabel `provinsi` dan `kota`
-// yang mungkin tidak ada dalam SQL dump awal.
-// Untuk tujuan ini, kita akan membuat query yang mencoba mengidentifikasi provinsi/kota
-// dari kolom `address` atau membuat tabel dummy jika diperlukan.
-
+// Existing functions for geographical data are fine as they query `asesi_profiles`
 async function getProvincesWithAsesiCount() {
-  // Ini adalah placeholder. Implementasi nyata akan memerlukan tabel `provinsi` dan `kota`
-  // dan join yang kompleks. Untuk simulasi, kita bisa mengelompokkan dari `address` atau data dummy.
   const res = await query(
     `
     SELECT
@@ -224,10 +222,8 @@ async function getProvincesWithAsesiCount() {
     GROUP BY province_name
     HAVING UPPER(SUBSTRING(ap.address FROM '(?<=Provinsi: )[^,]+')) IS NOT NULL
     ORDER BY total_asesi DESC;
-    `
+    `,
   );
-  // Format hasil agar mirip dengan data dummy: { id: ..., wilayah: ..., jumlah: ... }
-  // ID akan disimulasikan sebagai index + 1
   return res.rows.map((row, index) => ({
     id: index + 1,
     wilayah: row.province_name,
@@ -236,7 +232,6 @@ async function getProvincesWithAsesiCount() {
 }
 
 async function getCitiesByProvinceId(provinsiId) {
-  // Lagi, ini placeholder. Ketergantungan pada struktur `address`
   const provinces = await getProvincesWithAsesiCount();
   const selectedProvince = provinces.find((p) => p.id === parseInt(provinsiId));
 
@@ -254,7 +249,7 @@ async function getCitiesByProvinceId(provinsiId) {
     HAVING UPPER(SUBSTRING(ap.address FROM '(?<=Kota/Kabupaten: )[^,]+')) IS NOT NULL
     ORDER BY total_asesi DESC;
     `,
-    [`%Provinsi: ${selectedProvince.wilayah}%`]
+    [`%Provinsi: ${selectedProvince.wilayah}%`],
   );
 
   return res.rows.map((row, index) => ({
@@ -266,12 +261,7 @@ async function getCitiesByProvinceId(provinsiId) {
 }
 
 async function getAsesiByCityId(kotaId) {
-  // Ini sangat bergantung pada data simulasi atau skema `address` yang sangat spesifik
-  // Untuk tujuan demo, kita akan mengasumsikan kotaId merujuk ke data dummy yang sesuai.
-  // Untuk backend, kita perlu query yang lebih solid.
-
-  // Contoh: Ambil nama kota dari ID dummy
-  const dummyCities = await getCitiesByProvinceId(1); // Contoh: Ambil dari provinsi ID 1
+  const dummyCities = await getCitiesByProvinceId(1); // Example: Get from province ID 1
   const selectedCity = dummyCities.find((c) => c.id === parseInt(kotaId));
 
   if (!selectedCity) return [];
@@ -284,7 +274,7 @@ async function getAsesiByCityId(kotaId) {
     WHERE ap.address ILIKE $1
     ORDER BY ap.full_name ASC;
     `,
-    [`%Kota/Kabupaten: ${selectedCity.wilayah}%`]
+    [`%Kota/Kabupaten: ${selectedCity.wilayah}%`],
   );
 
   return res.rows;
@@ -296,7 +286,7 @@ module.exports = {
   createUserForAsesi,
   deleteUser,
   getCertificationSchemeById,
-  getCertificationSchemeByCode, // Export baru
+  getCertificationSchemeByCode,
   findAllAsesi,
   findAsesiById,
   createAsesiProfileWithUserId,
